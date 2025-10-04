@@ -3,7 +3,7 @@ import "../css/styles.css";
 import "../css/components.css";
 
 // Import lucide-react icons
-import { Archive, Package, Layers, BarChart3 } from "lucide-react";
+import { Archive, Package, Layers, BarChart3, Gem } from "lucide-react";
 
 function Navigation({ activeTab, setActiveTab }) {
   return (
@@ -33,7 +33,7 @@ function Navigation({ activeTab, setActiveTab }) {
         className={`nav-btn ${activeTab === "reports" ? "active" : ""}`}
         onClick={() => setActiveTab("reports")}
       >
-        <BarChart3 size={20} style={{ marginRight: "8px" }} /> Reports
+        <Gem size={20} style={{ marginRight: "8px" }} /> Pieces
       </button>
     </nav>
   );

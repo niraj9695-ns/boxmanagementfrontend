@@ -125,13 +125,13 @@ function ContainerDetails({ counter, onBack, onManage }) {
                         <Edit2 size={16} />
                         Edit
                       </button>
-                      <button
+                      {/* <button
                         className="btn btn-danger btn-small flex items-center gap-1"
                         onClick={() => setShowDelete(c)}
                       >
                         <Trash2 size={16} />
                         Delete
-                      </button>
+                      </button> */}
                     </div>
                   </td>
                 </tr>

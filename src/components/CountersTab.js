@@ -4,6 +4,10 @@ import { Archive, Package, Edit, Trash2, BarChart } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
 
+// ✅ React-Toastify
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
 // Import child views
 import ContainerDetails from "./ContainerDetails"; // (B)
 import PieceManagement from "./PieceManagement"; // (C)
@@ -150,7 +154,7 @@ function CountersTab() {
       });
     } catch (err) {
       console.error("Error fetching counters:", err?.message || err);
-      alert("Failed to load counters. " + (err?.message || ""));
+      toast.error("Failed to load counters. " + (err?.message || ""));
     } finally {
       setLoading(false);
     }
@@ -170,6 +174,7 @@ function CountersTab() {
       }));
     } catch (err) {
       console.error("Error fetching boxes for counter:", err?.message || err);
+      toast.error("Failed to load boxes for counter.");
     }
   };
 
@@ -199,15 +204,19 @@ function CountersTab() {
         delete copy[id];
         return copy;
       });
+      toast.success("Counter deleted successfully ✅");
     } catch (err) {
       console.error("Delete failed:", err?.message || err);
-      alert("Failed to delete counter. " + (err?.message || ""));
+      toast.error("Failed to delete counter. " + (err?.message || ""));
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim()) return alert("Name is required");
+    if (!formData.name.trim()) {
+      toast.warning("Name is required");
+      return;
+    }
 
     try {
       if (editingId) {
@@ -220,6 +229,7 @@ function CountersTab() {
         setCounters((prev) =>
           prev.map((c) => (c.id === editingId ? updated : c))
         );
+        toast.success("Counter updated successfully ✅");
       } else {
         const payload = {
           name: formData.name.trim(),
@@ -228,44 +238,49 @@ function CountersTab() {
         const res = await api.post("/counters", payload);
         const created = res.data || payload;
         setCounters((prev) => [...prev, created]);
-        // also fetch boxes for new counter
         fetchBoxesForCounter(created.id);
+        toast.success("Counter created successfully 🎉");
       }
       setShowForm(false);
     } catch (err) {
       console.error("Save failed:", err?.message || err);
-      alert("Failed to save counter. " + (err?.message || ""));
+      toast.error("Failed to save counter. " + (err?.message || ""));
     }
   };
 
   // ✅ Switch view to ContainerDetails (B)
   if (activeView === "containers" && selectedCounter) {
     return (
-      <ContainerDetails
-        counter={selectedCounter}
-        onBack={() => {
-          setSelectedCounter(null);
-          setActiveView("counters");
-        }}
-        // 👇 New: handle Manage → open PieceManagement
-        onManage={(container) => {
-          setSelectedContainer(container);
-          setActiveView("pieces");
-        }}
-      />
+      <>
+        <ContainerDetails
+          counter={selectedCounter}
+          onBack={() => {
+            setSelectedCounter(null);
+            setActiveView("counters");
+          }}
+          onManage={(container) => {
+            setSelectedContainer(container);
+            setActiveView("pieces");
+          }}
+        />
+        <ToastContainer position="top-right" autoClose={2500} />
+      </>
     );
   }
 
   // ✅ Switch view to PieceManagement (C)
   if (activeView === "pieces" && selectedContainer) {
     return (
-      <PieceManagement
-        container={selectedContainer}
-        onBack={() => {
-          setSelectedContainer(null);
-          setActiveView("containers");
-        }}
-      />
+      <>
+        <PieceManagement
+          container={selectedContainer}
+          onBack={() => {
+            setSelectedContainer(null);
+            setActiveView("containers");
+          }}
+        />
+        <ToastContainer position="top-right" autoClose={2500} />
+      </>
     );
   }
 
@@ -415,6 +430,9 @@ function CountersTab() {
           </table>
         )}
       </div>
+
+      {/* ✅ Toast container (always visible) */}
+      <ToastContainer position="top-right" autoClose={2500} />
     </div>
   );
 }

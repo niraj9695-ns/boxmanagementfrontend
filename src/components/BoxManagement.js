@@ -14,6 +14,10 @@ import "../css/components.css";
 
 import PieceManagementBox from "./PieceManagementBox";
 
+/* 🔹 Toastify */
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
 /* 🔹 Utility: Get JWT token */
 function getToken() {
   return localStorage.getItem("token");
@@ -98,6 +102,7 @@ const BoxesTab = () => {
       setBoxes(filtered);
     } catch (err) {
       console.error("Error fetching boxes:", err);
+      toast.error("Failed to fetch boxes");
     } finally {
       setLoading(false);
     }
@@ -138,9 +143,43 @@ const BoxesTab = () => {
 
   return (
     <div id="boxesTab">
+      <ToastContainer />
+
       {/* Section Header */}
       <div className="section-header flex items-center justify-between">
         <h2 className="text-xl font-semibold">All Boxes</h2>
+
+        {/* 🔍 Search */}
+        <div style={{ margin: "1rem 0" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              border: "1px solid #d1d5db", // light gray border
+              borderRadius: "6px",
+              padding: "6px 8px",
+              backgroundColor: "#fff",
+              maxWidth: "320px",
+            }}
+          >
+            <Search size={18} style={{ color: "#6b7280" }} />
+            <input
+              type="text"
+              id="boxesSearch"
+              placeholder="Search boxes..."
+              value={searchQuery}
+              onChange={handleSearch}
+              style={{
+                flex: 1,
+                border: "none",
+                outline: "none",
+                padding: "4px 8px",
+                fontSize: "14px",
+              }}
+            />
+          </div>
+        </div>
+
         <button
           id="addBoxBtn"
           className="btn btn-success flex items-center gap-2"
@@ -149,21 +188,6 @@ const BoxesTab = () => {
           <Plus size={18} />
           Add New Box
         </button>
-      </div>
-
-      {/* Search */}
-      <div className="search-container my-4">
-        <div className="search-box flex items-center border rounded px-2 py-1">
-          <Search size={18} className="text-gray-500" />
-          <input
-            type="text"
-            id="boxesSearch"
-            placeholder="Search boxes..."
-            className="search-input flex-1 outline-none px-2"
-            value={searchQuery}
-            onChange={handleSearch}
-          />
-        </div>
       </div>
 
       {/* Boxes List */}
@@ -237,12 +261,12 @@ const BoxesTab = () => {
                   >
                     <Edit2 size={16} /> Edit
                   </button>
-                  <button
+                  {/* <button
                     className="btn btn-danger btn-small flex items-center gap-1"
                     onClick={() => setShowDelete(box)}
                   >
                     <Trash2 size={16} /> Delete
-                  </button>
+                  </button> */}
                 </div>
               </div>
             </div>
@@ -290,10 +314,13 @@ const BoxesTab = () => {
               </button>
               <button
                 onClick={() =>
-                  BoxClass.delete(showDelete.id).then(() => {
-                    refreshBoxes();
-                    setShowDelete(null);
-                  })
+                  BoxClass.delete(showDelete.id)
+                    .then(() => {
+                      toast.success("Box deleted successfully");
+                      refreshBoxes();
+                      setShowDelete(null);
+                    })
+                    .catch(() => toast.error("Failed to delete box"))
                 }
                 className="btn btn-danger"
               >
@@ -312,17 +339,46 @@ function CreateBoxForm({ onClose, onSaved }) {
   const [identity, setIdentity] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [fixedWeight, setFixedWeight] = useState(100);
+  const [counters, setCounters] = useState([]);
+  const [counterId, setCounterId] = useState("");
+
+  /* Fetch counters when modal opens */
+  useEffect(() => {
+    async function fetchCounters() {
+      try {
+        const res = await axios.get("http://localhost:8080/api/counters", {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        setCounters(res.data);
+      } catch (err) {
+        console.error("Error fetching counters:", err);
+        toast.error("Failed to fetch counters");
+      }
+    }
+    fetchCounters();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    await BoxClass.create({
-      type: "BOX",
-      identity,
-      date,
-      fixedWeight,
-    });
-    onSaved();
-    onClose();
+    if (!counterId) {
+      toast.error("Please select a counter");
+      return;
+    }
+    try {
+      await BoxClass.create({
+        type: "BOX",
+        identity,
+        counterId: parseInt(counterId),
+        date,
+        fixedWeight,
+      });
+      toast.success("Box created successfully");
+      onSaved();
+      onClose();
+    } catch (err) {
+      console.error("Error creating box:", err);
+      toast.error("Failed to create box");
+    }
   };
 
   return (
@@ -335,6 +391,21 @@ function CreateBoxForm({ onClose, onSaved }) {
           onChange={(e) => setIdentity(e.target.value)}
           required
         />
+      </div>
+      <div className="form-group">
+        <label>Counter</label>
+        <select
+          value={counterId}
+          onChange={(e) => setCounterId(e.target.value)}
+          required
+        >
+          <option value="">Select Counter</option>
+          {counters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="form-group">
         <label>Date</label>
@@ -375,13 +446,19 @@ function EditBoxForm({ box, onClose, onSaved }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    await BoxClass.update(box.id, {
-      identity,
-      date,
-      fixedWeight,
-    });
-    onSaved();
-    onClose();
+    try {
+      await BoxClass.update(box.id, {
+        identity,
+        date,
+        fixedWeight,
+      });
+      toast.success("Box updated successfully");
+      onSaved();
+      onClose();
+    } catch (err) {
+      console.error("Error updating box:", err);
+      toast.error("Failed to update box");
+    }
   };
 
   return (

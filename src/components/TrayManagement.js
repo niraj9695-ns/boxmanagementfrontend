@@ -144,6 +144,37 @@ const TrayManagement = () => {
       {/* Section Header */}
       <div className="section-header flex items-center justify-between">
         <h2 className="text-xl font-semibold">All Trays</h2>
+
+        {/* 🔍 Search */}
+        <div style={{ margin: "1rem 0" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              border: "1px solid #d1d5db",
+              borderRadius: "6px",
+              padding: "6px 8px",
+              backgroundColor: "#fff",
+              maxWidth: "320px",
+            }}
+          >
+            <Search size={18} style={{ color: "#6b7280" }} />
+            <input
+              type="text"
+              id="boxesSearch"
+              placeholder="Search Trays..."
+              value={searchQuery}
+              onChange={handleSearch}
+              style={{
+                flex: 1,
+                border: "none",
+                outline: "none",
+                padding: "4px 8px",
+                fontSize: "14px",
+              }}
+            />
+          </div>
+        </div>
         <button
           id="addBoxBtn"
           className="btn btn-success flex items-center gap-2"
@@ -152,21 +183,6 @@ const TrayManagement = () => {
           <Plus size={18} />
           Add New Tray
         </button>
-      </div>
-
-      {/* Search */}
-      <div className="search-container my-4">
-        <div className="search-box flex items-center border rounded px-2 py-1">
-          <Search size={18} className="text-gray-500" />
-          <input
-            type="text"
-            id="boxesSearch"
-            placeholder="Search trays..."
-            className="search-input flex-1 outline-none px-2"
-            value={searchQuery}
-            onChange={handleSearch}
-          />
-        </div>
       </div>
 
       {/* Trays List */}
@@ -240,12 +256,12 @@ const TrayManagement = () => {
                   >
                     <Edit2 size={16} /> Edit
                   </button>
-                  <button
+                  {/* <button
                     className="btn btn-danger btn-small flex items-center gap-1"
                     onClick={() => setShowDelete(tray)}
                   >
                     <Trash2 size={16} /> Delete
-                  </button>
+                  </button> */}
                 </div>
               </div>
             </div>
@@ -320,6 +336,23 @@ function CreateTrayForm({ onClose, onSaved }) {
   const [identity, setIdentity] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [fixedWeight, setFixedWeight] = useState(100);
+  const [counters, setCounters] = useState([]);
+  const [counterId, setCounterId] = useState("");
+
+  useEffect(() => {
+    fetchCounters();
+  }, []);
+
+  const fetchCounters = async () => {
+    try {
+      const res = await axios.get("http://localhost:8080/api/counters", {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      setCounters(res.data);
+    } catch (err) {
+      toast.error("Failed to load counters");
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -327,6 +360,7 @@ function CreateTrayForm({ onClose, onSaved }) {
       await TrayClass.create({
         type: "TRAY",
         identity,
+        counterId: parseInt(counterId),
         date,
         fixedWeight,
       });
@@ -348,6 +382,21 @@ function CreateTrayForm({ onClose, onSaved }) {
           onChange={(e) => setIdentity(e.target.value)}
           required
         />
+      </div>
+      <div className="form-group">
+        <label>Counter</label>
+        <select
+          value={counterId}
+          onChange={(e) => setCounterId(e.target.value)}
+          required
+        >
+          <option value="">Select Counter</option>
+          {counters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="form-group">
         <label>Date</label>
@@ -385,12 +434,30 @@ function EditTrayForm({ tray, onClose, onSaved }) {
   const [identity, setIdentity] = useState(tray.identity);
   const [date, setDate] = useState(tray.date.split("T")[0]);
   const [fixedWeight, setFixedWeight] = useState(tray.fixedWeight);
+  const [counters, setCounters] = useState([]);
+  const [counterId, setCounterId] = useState(tray.counterId || "");
+
+  useEffect(() => {
+    fetchCounters();
+  }, []);
+
+  const fetchCounters = async () => {
+    try {
+      const res = await axios.get("http://localhost:8080/api/counters", {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      setCounters(res.data);
+    } catch (err) {
+      toast.error("Failed to load counters");
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       await TrayClass.update(tray.id, {
         identity,
+        counterId: parseInt(counterId),
         date,
         fixedWeight,
       });
@@ -412,6 +479,21 @@ function EditTrayForm({ tray, onClose, onSaved }) {
           onChange={(e) => setIdentity(e.target.value)}
           required
         />
+      </div>
+      <div className="form-group">
+        <label>Counter</label>
+        <select
+          value={counterId}
+          onChange={(e) => setCounterId(e.target.value)}
+          required
+        >
+          <option value="">Select Counter</option>
+          {counters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="form-group">
         <label>Date</label>

@@ -6,17 +6,27 @@ import Navigation from "./components/Navigation";
 import CountersTab from "./components/CountersTab";
 import BoxManagement from "./components/BoxManagement";
 import TrayManagement from "./components/TrayManagement";
+import GetAllPieces from "./components/GetAllPieces";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState("counters"); // ✅ default tab
+  const [fade, setFade] = useState(false);
 
+  // Check login state
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
       setIsLoggedIn(true);
     }
   }, []);
+
+  // Handle fade animation when tab changes
+  useEffect(() => {
+    setFade(false); // reset
+    const timer = setTimeout(() => setFade(true), 50); // trigger after small delay
+    return () => clearTimeout(timer);
+  }, [activeTab]);
 
   return (
     <>
@@ -27,14 +37,15 @@ function App() {
           <Header />
           <DashboardStats />
 
-          {/* Pass activeTab & setActiveTab into Navigation */}
+          {/* Navigation */}
           <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
 
-          <div className="content">
+          {/* Content with fade transition */}
+          <div className={`content ${fade ? "fade" : ""}`}>
             {activeTab === "counters" && <CountersTab />}
             {activeTab === "boxes" && <BoxManagement />}
             {activeTab === "trays" && <TrayManagement />}
-            {/* Add trays, reports later if needed */}
+            {activeTab === "reports" && <GetAllPieces />}
           </div>
         </div>
       )}

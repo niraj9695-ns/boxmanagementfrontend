@@ -1,8 +1,6 @@
-// PieceManagementBox.js
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import {
-  ArrowLeft,
   Scale,
   Weight,
   Package2,
@@ -13,9 +11,12 @@ import {
   Move,
   Edit2,
   Trash2,
+  Search,
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 /* 🔹 Utility: Get JWT token */
 function getToken() {
@@ -39,8 +40,7 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-export default function PieceManagementBox({ container, boxId, onBack }) {
-  const [box, setBox] = useState(container || null);
+export default function GetAllPieces() {
   const [pieces, setPieces] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -54,6 +54,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
   const [selectedContainer, setSelectedContainer] = useState("");
   const [showSoldOut, setShowSoldOut] = useState(null); // piece object
   const [deleteModal, setDeleteModal] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Form state for Add
   const [formData, setFormData] = useState({
@@ -64,36 +65,18 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
     vweight: "",
   });
 
-  const activeBoxId = box?.id || boxId;
-
-  /* 🔹 Fetch box details if only boxId is passed */
+  /* 🔹 Fetch All Pieces */
   useEffect(() => {
-    if (!box && boxId) {
-      axios
-        .get(`http://localhost:8080/api/boxes/${boxId}`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        })
-        .then((res) => setBox(res.data))
-        .catch((err) => console.error("Error fetching box details:", err));
-    }
-  }, [boxId, box]);
-
-  /* 🔹 Fetch Pieces */
-  useEffect(() => {
-    if (!activeBoxId) return;
     fetchPieces();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBoxId]);
+  }, []);
 
   async function fetchPieces() {
-    if (!activeBoxId) return;
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:8080/api/pieces/by-box", {
+      const res = await axios.get("http://localhost:8080/api/pieces", {
         headers: {
           Authorization: `Bearer ${getToken()}`,
         },
-        params: { boxId: activeBoxId },
       });
       setPieces(res.data);
     } catch (err) {
@@ -102,14 +85,6 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
       setLoading(false);
     }
   }
-
-  // calculate weights dynamically
-  const fixedWeight = box?.fixedWeight || 0;
-
-  const netWeight = pieces.reduce((sum, p) => sum + (p.weight || 0), 0);
-  const variableWeight = pieces.reduce((sum, p) => sum + (p.vweight || 0), 0);
-
-  const grossWeight = fixedWeight + netWeight;
 
   /* 🔹 Handle form changes */
   const handleChange = (e) => {
@@ -120,24 +95,22 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
   /* 🔹 Add Piece Submit */
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-    if (!box) {
-      alert("Box details not loaded yet!");
-      return;
-    }
     try {
       await axios.post(
         "http://localhost:8080/api/pieces",
         {
           date: formData.date,
-          counterId: box.counterId,
-          boxId: box.id,
+          counterId: selectedCounter,
+          boxId: selectedContainer,
           barcode: formData.barcode,
           type: formData.type,
           weight: parseFloat(formData.weight),
           vweight: parseFloat(formData.vweight),
         },
         {
-          headers: { Authorization: `Bearer ${getToken()}` },
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+          },
         }
       );
 
@@ -159,21 +132,22 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
   /* 🔹 Edit Piece Submit */
   const handleEditSubmit = async (e) => {
     e.preventDefault();
-    if (!box) return;
     try {
       await axios.put(
         `http://localhost:8080/api/pieces/${showEdit.id}`,
         {
           date: showEdit.date,
-          counterId: box.counterId,
-          boxId: box.id,
+          counterId: showEdit.counterId,
+          boxId: showEdit.boxId,
           barcode: showEdit.barcode,
           type: showEdit.type,
           weight: parseFloat(showEdit.weight),
           vweight: parseFloat(showEdit.vweight),
         },
         {
-          headers: { Authorization: `Bearer ${getToken()}` },
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+          },
         }
       );
 
@@ -225,6 +199,19 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
     }
   };
 
+  /* 🔹 Handlers */
+  const handleSearch = (e) => {
+    setSearchQuery(e.target.value);
+  };
+
+  /* 🔹 Filtered boxes */
+  const filteredPieces = pieces.filter(
+    (piece) =>
+      piece.barcode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      piece.type?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      piece.counterName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      piece.box?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
   // submit transfer
   const handleTransferSubmit = async (e) => {
     e.preventDefault();
@@ -253,7 +240,9 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
   const handleDelete = async (id) => {
     try {
       await axios.delete(`http://localhost:8080/api/pieces/${id}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
       });
       setDeleteModal(null);
       fetchPieces();
@@ -266,24 +255,62 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
 
   const handleSell = (piece) => setShowSoldOut(piece);
 
+  /* 🔹 Fetch counters when Add Modal opens */
+  useEffect(() => {
+    if (showCreate) {
+      fetchCounters();
+    }
+  }, [showCreate]);
+
+  async function fetchCounters() {
+    try {
+      const res = await axios.get("http://localhost:8080/api/counters", {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      setCounters(res.data);
+    } catch (err) {
+      console.error("Error fetching counters:", err);
+    }
+  }
+
   return (
-    <div id="pieceManagement">
+    <div id="getAllPieces">
       {/* Header */}
       <div className="section-header">
         <div className="piece-management-header">
-          <h2>Piece Management</h2>
-          <h3 id="pieceTitle">
-            Box #{box?.identity || boxId} - Piece Management
-          </h3>
+          <h2>All Pieces</h2>
         </div>
 
-        <button
-          onClick={onBack}
-          id="backToContainers"
-          className="btn btn-secondary flex items-center gap-1"
-        >
-          <ArrowLeft size={16} /> Back to Containers
-        </button>
+        {/* 🔍 Search */}
+        <div style={{ margin: "1rem 0" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              border: "1px solid #d1d5db", // light gray border
+              borderRadius: "6px",
+              padding: "6px 8px",
+              backgroundColor: "#fff",
+              maxWidth: "320px",
+            }}
+          >
+            <Search size={18} style={{ color: "#6b7280" }} />
+            <input
+              type="text"
+              id="boxesSearch"
+              placeholder="Search pieces..."
+              value={searchQuery}
+              onChange={handleSearch}
+              style={{
+                flex: 1,
+                border: "none",
+                outline: "none",
+                padding: "4px 8px",
+                fontSize: "14px",
+              }}
+            />
+          </div>
+        </div>
 
         <button
           id="addPieceBtn"
@@ -294,54 +321,13 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
         </button>
       </div>
 
-      {/* Weight Cards */}
-      <div className="piece-management-content">
-        <div className="weight-cards">
-          <div className="weight-card">
-            <div className="weight-icon">
-              <Weight size={20} />
-            </div>
-            <div className="weight-content">
-              <div className="weight-label">Fixed Weight</div>
-              <div className="weight-value">{box?.fixedWeight ?? "-"}g</div>
-            </div>
-          </div>
-          <div className="weight-card">
-            <div className="weight-icon">
-              <Scale size={20} />
-            </div>
-            <div className="weight-content">
-              <div className="weight-label">Net Weight</div>
-              <div className="weight-value">{box?.netWeight ?? "-"}g</div>
-            </div>
-          </div>
-          <div className="weight-card">
-            <div className="weight-icon">
-              <Package2 size={20} />
-            </div>
-            <div className="weight-content">
-              <div className="weight-label">Variable Weight</div>
-              <div className="weight-value">{box?.variableWeight ?? "-"}g</div>
-            </div>
-          </div>
-          <div className="weight-card">
-            <div className="weight-icon">
-              <Calculator size={20} />
-            </div>
-            <div className="weight-content">
-              <div className="weight-label">Gross Weight</div>
-              <div className="weight-value">{box?.grossWeight ?? "-"}g</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Table */}
       <div className="table-container">
         <table className="data-table">
           <thead>
             <tr>
-              <th>Date</th>
+              <th>Counter Name</th>
+              <th>Box</th>
               <th>Barcode</th>
               <th>Type</th>
               <th>Weight (g)</th>
@@ -353,24 +339,25 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
           <tbody id="piecesTableBody">
             {loading ? (
               <tr>
-                <td colSpan={7} className="text-center py-6">
+                <td colSpan={8} className="text-center py-6">
                   Loading...
                 </td>
               </tr>
             ) : pieces.length === 0 ? (
               <tr>
-                <td colSpan={7} className="empty-state text-center py-6">
+                <td colSpan={8} className="empty-state text-center py-6">
                   <div className="flex flex-col items-center">
                     <Gem size={32} />
                     <h3 className="font-semibold">No pieces found</h3>
-                    <p>Add pieces to this container to get started</p>
+                    <p>Add pieces to get started</p>
                   </div>
                 </td>
               </tr>
             ) : (
-              pieces.map((piece) => (
+              filteredPieces.map((piece) => (
                 <tr key={piece.id}>
-                  <td>{new Date(piece.date).toLocaleDateString()}</td>
+                  <td>{piece.counterName}</td>
+                  <td>Box #{piece.boxIdentity}</td>
                   <td className="font-semibold">{piece.barcode}</td>
                   <td>{piece.type}</td>
                   <td>{piece.weight}g</td>
@@ -387,16 +374,16 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                     </span>
                   </td>
                   <td>
-                    <div className="flex gap-2">
+                    <div className="action-buttons">
                       <button
-                        className="btn btn-small btn-success flex items-center gap-1"
+                        className="btn btn-small btn-success"
                         onClick={() => handleSell(piece)}
                       >
                         <ShoppingCart size={14} /> Sell
                       </button>
 
                       <button
-                        className="btn btn-small btn-primary flex items-center gap-1"
+                        className="btn btn-small btn-primary"
                         onClick={() => handleTransfer(piece)}
                       >
                         <Move size={14} /> Transfer
@@ -422,8 +409,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
         </table>
       </div>
 
-      {/* ✅ Modals (same as before, updated to use `box`) */}
-      {/* Create Modal */}
+      {/* ✅ Create Modal */}
       {showCreate && (
         <Modal title="Add New Piece" onClose={() => setShowCreate(false)}>
           <form onSubmit={handleAddSubmit} className="piece-form">
@@ -457,6 +443,42 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 required
               />
             </div>
+
+            {/* Counter + Box selection */}
+            <div className="form-row">
+              <div className="form-group">
+                <label>Counter</label>
+                <select
+                  value={selectedCounter}
+                  onChange={(e) => handleCounterChange(e.target.value)}
+                  required
+                >
+                  <option value="">Select Counter</option>
+                  {counters.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Box</label>
+                <select
+                  value={selectedContainer}
+                  onChange={(e) => setSelectedContainer(e.target.value)}
+                  required
+                  disabled={!containers.length}
+                >
+                  <option value="">Select Box</option>
+                  {containers.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      Box #{b.identity}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div className="form-row">
               <div className="form-group">
                 <label>Weight (g)</label>
@@ -497,7 +519,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
         </Modal>
       )}
 
-      {/* Edit Modal */}
+      {/* ✅ Edit Modal */}
       {showEdit && (
         <Modal title="Edit Piece" onClose={() => setShowEdit(null)}>
           <form onSubmit={handleEditSubmit} className="piece-form">
@@ -576,11 +598,10 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
         </Modal>
       )}
 
-      {/* Transfer Modal */}
+      {/* ✅ Transfer Modal */}
       {showTransfer && (
         <Modal title="Transfer Piece" onClose={() => setShowTransfer(null)}>
           <form onSubmit={handleTransferSubmit} className="piece-form">
-            {/* Current Location */}
             <div className="form-group">
               <label>Current Location</label>
               <div
@@ -591,14 +612,11 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                   color: "#64748b",
                 }}
               >
-                {box
-                  ? `Counter ${box.counterId} → Box #${box.identity}`
-                  : `Box #${boxId}`}
+                {`Counter ${showTransfer.counterName} → Box #${showTransfer.boxIdentity}`}
               </div>
             </div>
 
             <div className="transfer-options form-row">
-              {/* Counter Dropdown */}
               <div className="form-group">
                 <label>Target Counter</label>
                 <select
@@ -615,7 +633,6 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 </select>
               </div>
 
-              {/* Container Dropdown */}
               <div className="form-group">
                 <label>Target Container</label>
                 <select
@@ -650,7 +667,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
         </Modal>
       )}
 
-      {/* Sold Out Modal */}
+      {/* ✅ Sold Out Modal */}
       {showSoldOut && (
         <Modal title="Mark as Sold Out" onClose={() => setShowSoldOut(null)}>
           <form
@@ -660,7 +677,11 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 await axios.post(
                   `http://localhost:8080/api/pieces/sell?pieceId=${showSoldOut.id}`,
                   {},
-                  { headers: { Authorization: `Bearer ${getToken()}` } }
+                  {
+                    headers: {
+                      Authorization: `Bearer ${getToken()}`,
+                    },
+                  }
                 );
                 setShowSoldOut(null);
                 fetchPieces();
@@ -675,15 +696,9 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
             <div className="form-group">
               <p>
                 Are you sure you want to mark piece{" "}
-                <strong>{showSoldOut.barcode}</strong> as sold out?
-              </p>
-              <p>
-                <small style={{ color: "#dc2626" }}>
-                  This will change the status to sold out.
-                </small>
+                <strong>{showSoldOut.barcode}</strong> as Sold Out?
               </p>
             </div>
-
             <div className="form-actions">
               <button
                 type="button"
@@ -693,34 +708,30 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 Cancel
               </button>
               <button type="submit" className="btn btn-success">
-                Mark as Sold Out
+                Yes, Mark as Sold
               </button>
             </div>
           </form>
         </Modal>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* ✅ Delete Modal */}
       {deleteModal && (
         <Modal title="Delete Piece" onClose={() => setDeleteModal(null)}>
-          <div className="form-group">
-            <p>
-              Are you sure you want to delete piece{" "}
-              <strong>{deleteModal.barcode}</strong>?
-            </p>
-          </div>
-
-          <div className="form-actions flex justify-end gap-3 mt-6">
+          <p>
+            Are you sure you want to delete piece{" "}
+            <strong>{deleteModal.barcode}</strong>?
+          </p>
+          <div className="form-actions">
             <button
-              type="button"
-              className="btn btn-secondary"
               onClick={() => setDeleteModal(null)}
+              className="btn btn-secondary"
             >
               Cancel
             </button>
             <button
-              className="btn btn-danger"
               onClick={() => handleDelete(deleteModal.id)}
+              className="btn btn-danger"
             >
               Delete
             </button>
