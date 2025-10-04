@@ -78,6 +78,21 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
     }
   }, [boxId, box]);
 
+  async function fetchBoxDetails() {
+    if (!activeBoxId) return;
+    try {
+      const res = await axios.get(
+        `http://localhost:8080/api/boxes/${activeBoxId}`,
+        {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        }
+      );
+      setBox(res.data);
+    } catch (err) {
+      console.error("Error fetching box details:", err);
+    }
+  }
+
   /* 🔹 Fetch Pieces */
   useEffect(() => {
     if (!activeBoxId) return;
@@ -102,14 +117,6 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
       setLoading(false);
     }
   }
-
-  // calculate weights dynamically
-  const fixedWeight = box?.fixedWeight || 0;
-
-  const netWeight = pieces.reduce((sum, p) => sum + (p.weight || 0), 0);
-  const variableWeight = pieces.reduce((sum, p) => sum + (p.vweight || 0), 0);
-
-  const grossWeight = fixedWeight + netWeight;
 
   /* 🔹 Handle form changes */
   const handleChange = (e) => {
@@ -150,6 +157,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
         vweight: "",
       });
       fetchPieces();
+      fetchBoxDetails();
     } catch (err) {
       console.error("Error adding piece:", err);
       alert("Failed to add piece.");
@@ -178,6 +186,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
       );
 
       setShowEdit(null);
+      fetchBoxDetails();
       fetchPieces();
     } catch (err) {
       console.error("Error updating piece:", err);
@@ -243,6 +252,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
       );
 
       setShowTransfer(null);
+      fetchBoxDetails();
       fetchPieces();
     } catch (err) {
       console.error("Error transferring piece:", err);
@@ -256,6 +266,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       setDeleteModal(null);
+      fetchBoxDetails();
       fetchPieces();
       alert("Piece deleted successfully ✅");
     } catch (err) {
@@ -277,13 +288,13 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
           </h3>
         </div>
 
-        <button
+        {/* <button
           onClick={onBack}
           id="backToContainers"
           className="btn btn-secondary flex items-center gap-1"
         >
           <ArrowLeft size={16} /> Back to Containers
-        </button>
+        </button> */}
 
         <button
           id="addPieceBtn"
@@ -387,17 +398,17 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                     </span>
                   </td>
                   <td>
-                    <div className="flex gap-2">
+                    <div className="action-buttons">
                       <button
-                        className="btn btn-small btn-success flex items-center gap-1"
-                        onClick={() => handleSell(piece)}
+                        className="btn btn-small btn-success"
+                        onClick={() => handleSell(piece)} // ✅ pass whole object
                       >
                         <ShoppingCart size={14} /> Sell
                       </button>
 
                       <button
-                        className="btn btn-small btn-primary flex items-center gap-1"
-                        onClick={() => handleTransfer(piece)}
+                        className="btn btn-small btn-primary"
+                        onClick={() => handleTransfer(piece)} // ✅ pass whole object
                       >
                         <Move size={14} /> Transfer
                       </button>
@@ -409,7 +420,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                       </button>
                       <button
                         className="btn btn-small btn-danger flex items-center gap-1"
-                        onClick={() => setDeleteModal(piece)}
+                        onClick={() => setDeleteModal(piece)} // ✅ open confirmation modal
                       >
                         <Trash2 size={14} /> Delete
                       </button>

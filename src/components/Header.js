@@ -17,7 +17,7 @@ function Header() {
   return (
     <header className="header">
       <div className="header-content">
-        <h1>Box Management</h1>
+        <h1>Inventory Management</h1>
         <div className="header-controls">
           {/* <select id="typeSelector" className="type-selector">
             <option value="Gold">Gold</option>

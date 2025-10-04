@@ -13,7 +13,7 @@ function DashboardStats() {
     stock: 0,
   });
 
-  // Replace this with your actual token (or get from localStorage/context)
+  // Get token from localStorage
   const token = localStorage.getItem("token");
 
   useEffect(() => {
@@ -43,11 +43,21 @@ function DashboardStats() {
           (item) => item.type === "TRAY"
         ).length;
 
+        // Fetch Total Pieces
+        const piecesRes = await fetch("http://localhost:8080/api/pieces", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const piecesData = await piecesRes.json();
+        const totalPieces = piecesData.length || 0;
+
+        // Update stats state
         setStats({
           counters: countersData.length || 0,
           boxes: totalBoxes,
           trays: totalTrays,
-          stock: boxesData.length || 0, // assuming stock entries = total from /api/boxes
+          stock: totalPieces,
         });
       } catch (error) {
         console.error("Error fetching dashboard stats:", error);
@@ -94,7 +104,7 @@ function DashboardStats() {
           <Gem size={32} />
         </div>
         <div className="stat-content">
-          <div className="stat-label">Total Stock Entries</div>
+          <div className="stat-label">Total Pieces</div>
           <div className="stat-value">{stats.stock}</div>
         </div>
       </div>

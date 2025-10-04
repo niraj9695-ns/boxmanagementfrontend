@@ -411,7 +411,7 @@ function CountersTab() {
                           >
                             <Edit />
                           </button>
-                          <button
+                          {/* <button
                             className="btn btn-small btn-danger"
                             onClick={() => handleDeleteClick(counter.id)}
                           >
@@ -419,7 +419,7 @@ function CountersTab() {
                           </button>
                           <button className="btn btn-small btn-secondary">
                             <BarChart />
-                          </button>
+                          </button> */}
                         </div>
                       </td>
                     </tr>

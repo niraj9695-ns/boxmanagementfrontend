@@ -41,7 +41,7 @@ function LoginScreen({ onLoginSuccess }) {
   return (
     <div id="loginScreen" className="login-screen">
       <div className="login-container">
-        <h1>Jewelry Management System</h1>
+        <h1>Inventory Management System</h1>
         <form id="loginForm" className="login-form" onSubmit={handleLogin}>
           <div className="form-group">
             <label htmlFor="username">Username</label>

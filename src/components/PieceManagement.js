@@ -41,6 +41,7 @@ function Modal({ title, children, onClose }) {
 export default function PieceManagement({ container, boxId, onBack }) {
   const [pieces, setPieces] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [box, setBox] = useState(container);
 
   // Modal states
   const [showCreate, setShowCreate] = useState(false);
@@ -64,6 +65,21 @@ export default function PieceManagement({ container, boxId, onBack }) {
 
   const activeBoxId = container?.id || boxId;
 
+  async function fetchBoxDetails() {
+    if (!boxId && !container?.id) return;
+    try {
+      const res = await axios.get(
+        `http://localhost:8080/api/boxes/${container.id}`,
+        {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        }
+      );
+      setBox(res.data);
+    } catch (err) {
+      console.error("Error fetching box details:", err);
+    }
+  }
+
   /* 🔹 Fetch Pieces */
   useEffect(() => {
     fetchPieces();
@@ -83,6 +99,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
         },
       });
       setPieces(res.data);
+      fetchBoxDetails();
     } catch (err) {
       console.error("Error fetching pieces:", err);
     } finally {
@@ -127,6 +144,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
         vweight: "",
       });
       fetchPieces();
+      fetchBoxDetails();
     } catch (err) {
       console.error("Error adding piece:", err);
       alert("Failed to add piece.");
@@ -157,6 +175,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
 
       setShowEdit(null);
       fetchPieces();
+      fetchBoxDetails();
     } catch (err) {
       console.error("Error updating piece:", err);
       alert("Failed to update piece.");
@@ -230,6 +249,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
 
       setShowTransfer(null);
       fetchPieces(); // refresh table
+      fetchBoxDetails();
     } catch (err) {
       console.error("Error transferring piece:", err);
       alert("Failed to transfer piece.");
@@ -245,6 +265,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
       });
       setDeleteModal(null); // close modal
       fetchPieces(); // refresh table
+      fetchBoxDetails();
       alert("Piece deleted successfully ✅");
     } catch (err) {
       console.error("Error deleting piece:", err);
@@ -291,7 +312,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
             </div>
             <div className="weight-content">
               <div className="weight-label">Fixed Weight</div>
-              <div className="weight-value">{container.fixedWeight}g</div>
+              <div className="weight-value">{box?.fixedWeight ?? 0}g</div>
             </div>
           </div>
           <div className="weight-card">
@@ -300,7 +321,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
             </div>
             <div className="weight-content">
               <div className="weight-label">Net Weight</div>
-              <div className="weight-value">{container.netWeight}g</div>
+              <div className="weight-value">{box?.netWeight ?? 0}g</div>
             </div>
           </div>
           <div className="weight-card">
@@ -309,7 +330,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
             </div>
             <div className="weight-content">
               <div className="weight-label">Variable Weight</div>
-              <div className="weight-value">{container.variableWeight}g</div>
+              <div className="weight-value">{box?.variableWeight ?? 0}g</div>
             </div>
           </div>
           <div className="weight-card">
@@ -318,7 +339,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
             </div>
             <div className="weight-content">
               <div className="weight-label">Gross Weight</div>
-              <div className="weight-value">{container.grossWeight}g</div>
+              <div className="weight-value">{box?.grossWeight ?? 0}g</div>
             </div>
           </div>
         </div>
