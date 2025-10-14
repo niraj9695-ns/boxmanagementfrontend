@@ -17,6 +17,11 @@ import "../css/styles.css";
 import "../css/components.css";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs from "dayjs";
+import { X } from "lucide-react";
 
 /* 🔹 Utility: Get JWT token */
 function getToken() {
@@ -31,7 +36,10 @@ function Modal({ title, children, onClose }) {
         <div className="modal-header">
           <h3>{title}</h3>
           <button className="close-btn" onClick={onClose}>
-            ×
+            <X
+              size={20}
+              className="text-gray-600 hover:text-red-500 transition"
+            />
           </button>
         </div>
         <div className="modal-body">{children}</div>
@@ -113,6 +121,7 @@ export default function GetAllPieces() {
           },
         }
       );
+      toast.success("Piece added successfully");
 
       setShowCreate(false);
       setFormData({
@@ -125,7 +134,7 @@ export default function GetAllPieces() {
       fetchPieces();
     } catch (err) {
       console.error("Error adding piece:", err);
-      alert("Failed to add piece.");
+      toast.error("Failed to add piece");
     }
   };
 
@@ -150,12 +159,13 @@ export default function GetAllPieces() {
           },
         }
       );
+      toast.success("Piece updated successfully ");
 
       setShowEdit(null);
       fetchPieces();
     } catch (err) {
       console.error("Error updating piece:", err);
-      alert("Failed to update piece.");
+      toast.error("Failed to update piece ");
     }
   };
 
@@ -216,7 +226,8 @@ export default function GetAllPieces() {
   const handleTransferSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCounter || !selectedContainer) {
-      alert("Please select both counter and container.");
+      toast.warn("Please select both counter and container ⚠️");
+
       return;
     }
 
@@ -228,12 +239,13 @@ export default function GetAllPieces() {
           headers: { Authorization: `Bearer ${getToken()}` },
         }
       );
+      toast.success("Piece transferred successfully ");
 
       setShowTransfer(null);
       fetchPieces();
     } catch (err) {
       console.error("Error transferring piece:", err);
-      alert("Failed to transfer piece.");
+      toast.error("Failed to transfer piece ");
     }
   };
 
@@ -246,10 +258,10 @@ export default function GetAllPieces() {
       });
       setDeleteModal(null);
       fetchPieces();
-      alert("Piece deleted successfully ✅");
+      toast.success("Piece deleted successfully ");
     } catch (err) {
       console.error("Error deleting piece:", err);
-      alert("Failed to delete piece ❌");
+      toast.error("Failed to delete piece ");
     }
   };
 
@@ -415,14 +427,26 @@ export default function GetAllPieces() {
           <form onSubmit={handleAddSubmit} className="piece-form">
             <div className="form-group">
               <label>Date</label>
-              <input
-                type="date"
-                id="date"
-                value={formData.date}
-                onChange={handleChange}
-                required
-              />
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                <DatePicker
+                  value={dayjs(formData.date)} // keep format yyyy-MM-dd
+                  onChange={(newValue) => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      date: newValue ? newValue.format("YYYY-MM-DD") : "",
+                    }));
+                  }}
+                  slotProps={{
+                    textField: {
+                      size: "small",
+                      required: true,
+                      fullWidth: true,
+                    },
+                  }}
+                />
+              </LocalizationProvider>
             </div>
+
             <div className="form-group">
               <label>Barcode</label>
               <input
@@ -462,7 +486,7 @@ export default function GetAllPieces() {
                 </select>
               </div>
               <div className="form-group">
-                <label>Box</label>
+                <label>Box / Tray</label>
                 <select
                   value={selectedContainer}
                   onChange={(e) => setSelectedContainer(e.target.value)}
@@ -525,15 +549,26 @@ export default function GetAllPieces() {
           <form onSubmit={handleEditSubmit} className="piece-form">
             <div className="form-group">
               <label>Date</label>
-              <input
-                type="date"
-                value={showEdit.date.split("T")[0]}
-                onChange={(e) =>
-                  setShowEdit({ ...showEdit, date: e.target.value })
-                }
-                required
-              />
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                <DatePicker
+                  value={dayjs(showEdit.date)}
+                  onChange={(newValue) =>
+                    setShowEdit({
+                      ...showEdit,
+                      date: newValue ? newValue.format("YYYY-MM-DD") : "",
+                    })
+                  }
+                  slotProps={{
+                    textField: {
+                      size: "small",
+                      required: true,
+                      fullWidth: true,
+                    },
+                  }}
+                />
+              </LocalizationProvider>
             </div>
+
             <div className="form-group">
               <label>Barcode</label>
               <input
@@ -738,6 +773,7 @@ export default function GetAllPieces() {
           </div>
         </Modal>
       )}
+      <ToastContainer position="top-right" autoClose={3000} />
     </div>
   );
 }

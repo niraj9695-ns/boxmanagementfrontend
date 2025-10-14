@@ -2,6 +2,15 @@ import React, { useEffect, useState } from "react";
 import "../css/styles.css";
 import "../css/components.css";
 import { Package, Gem, Edit2, Trash2, ArrowLeft, Plus } from "lucide-react";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs from "dayjs";
+import { X } from "lucide-react";
+
+/* 🔹 Toastify */
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 /* 🔹 Modal Component */
 function Modal({ title, children, onClose }) {
@@ -10,8 +19,12 @@ function Modal({ title, children, onClose }) {
       <div className="modal">
         <div className="modal-header">
           <h3>{title}</h3>
-          <button className="close-btn" onClick={onClose}>
-            ×
+          <button
+            className="close-btn"
+            onClick={onClose}
+            aria-label="Close modal"
+          >
+            <X size={18} strokeWidth={2} />
           </button>
         </div>
         <div className="modal-body">{children}</div>
@@ -249,12 +262,20 @@ function CreateContainerForm({ counterId, onClose, onSaved }) {
       </div>
       <div className="form-group">
         <label>Date</label>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          required
-        />
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <DatePicker
+            value={dayjs(date)}
+            onChange={(newValue) => {
+              setDate(newValue ? newValue.format("YYYY-MM-DD") : "");
+            }}
+            slotProps={{
+              textField: {
+                required: true,
+                fullWidth: true,
+              },
+            }}
+          />
+        </LocalizationProvider>
       </div>
       <div className="form-group">
         <label>Fixed Weight (g)</label>
@@ -317,12 +338,20 @@ function EditContainerForm({ container, onClose, onSaved }) {
       </div>
       <div className="form-group">
         <label>Date</label>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          required
-        />
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <DatePicker
+            value={dayjs(date)}
+            onChange={(newValue) => {
+              setDate(newValue ? newValue.format("YYYY-MM-DD") : "");
+            }}
+            slotProps={{
+              textField: {
+                required: true,
+                fullWidth: true,
+              },
+            }}
+          />
+        </LocalizationProvider>
       </div>
       <div className="form-group">
         <label>Fixed Weight (g)</label>

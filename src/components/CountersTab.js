@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react"; // ✅ add useRef here
+
 import axios from "axios";
 import { Archive, Package, Edit, Trash2, BarChart } from "lucide-react";
 import "../css/styles.css";
@@ -136,6 +137,15 @@ function CountersTab() {
   const [activeView, setActiveView] = useState("counters");
   const [selectedCounter, setSelectedCounter] = useState(null);
   const [selectedContainer, setSelectedContainer] = useState(null);
+
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (showForm && inputRef.current) {
+      inputRef.current.focus(); // 🔹 put cursor in input
+      inputRef.current.select(); // 🔹 optional: highlight text for overwrite
+    }
+  }, [showForm]);
 
   useEffect(() => {
     fetchCounters();
@@ -312,6 +322,7 @@ function CountersTab() {
               <input
                 type="text"
                 id="counterName"
+                ref={inputRef} // 🔹 Add ref to input
                 value={formData.name}
                 onChange={(e) =>
                   setFormData({ ...formData, name: e.target.value })
@@ -319,17 +330,17 @@ function CountersTab() {
                 required
               />
             </div>
-            <div className="form-group">
-              <label htmlFor="counterDescription">Description (Optional)</label>
-              <textarea
-                id="counterDescription"
-                rows="3"
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
-              />
-            </div>
+            {/* <div className="form-group">
+        <label htmlFor="counterDescription">Description (Optional)</label>
+        <textarea
+          id="counterDescription"
+          rows="3"
+          value={formData.description}
+          onChange={(e) =>
+            setFormData({ ...formData, description: e.target.value })
+          }
+        />
+      </div> */}
             <div className="form-actions">
               <button
                 type="button"

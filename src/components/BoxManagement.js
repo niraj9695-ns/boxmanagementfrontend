@@ -11,6 +11,11 @@ import {
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs from "dayjs";
+import { X } from "lucide-react";
 
 import PieceManagementBox from "./PieceManagementBox";
 
@@ -30,8 +35,12 @@ function Modal({ title, children, onClose }) {
       <div className="modal">
         <div className="modal-header">
           <h3>{title}</h3>
-          <button className="close-btn" onClick={onClose}>
-            ×
+          <button
+            className="close-btn"
+            onClick={onClose}
+            aria-label="Close modal"
+          >
+            <X size={18} strokeWidth={2} />
           </button>
         </div>
         <div className="modal-body">{children}</div>
@@ -409,13 +418,18 @@ function CreateBoxForm({ onClose, onSaved }) {
       </div>
       <div className="form-group">
         <label>Date</label>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          required
-        />
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <DatePicker
+            format="YYYY-MM-DD" // 🔹 keep backend format
+            value={dayjs(date)} // convert stored string → dayjs
+            onChange={(newValue) => {
+              if (newValue) setDate(newValue.format("YYYY-MM-DD")); // store as string
+            }}
+            slotProps={{ textField: { fullWidth: true, required: true } }}
+          />
+        </LocalizationProvider>
       </div>
+
       <div className="form-group">
         <label>Fixed Weight (g)</label>
         <input
@@ -474,13 +488,18 @@ function EditBoxForm({ box, onClose, onSaved }) {
       </div>
       <div className="form-group">
         <label>Date</label>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          required
-        />
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <DatePicker
+            format="YYYY-MM-DD"
+            value={dayjs(date)}
+            onChange={(newValue) => {
+              if (newValue) setDate(newValue.format("YYYY-MM-DD"));
+            }}
+            slotProps={{ textField: { fullWidth: true, required: true } }}
+          />
+        </LocalizationProvider>
       </div>
+
       <div className="form-group">
         <label>Fixed Weight (g)</label>
         <input
