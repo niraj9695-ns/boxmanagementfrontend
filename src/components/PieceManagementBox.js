@@ -455,7 +455,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 id="barcode"
                 value={formData.barcode}
                 onChange={handleChange}
-                required
+                // required
               />
             </div>
             <div className="form-group">
