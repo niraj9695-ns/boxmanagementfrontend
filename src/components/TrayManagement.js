@@ -139,7 +139,10 @@ const TrayManagement = () => {
       <div>
         <button
           className="btn btn-secondary flex items-center gap-2 mb-4"
-          onClick={() => setView("trays")}
+          onClick={() => {
+            setView("trays");
+            refreshTrays(); // 🔹 Refresh tray list when going back
+          }}
         >
           <ArrowLeft size={18} /> Back to Trays
         </button>

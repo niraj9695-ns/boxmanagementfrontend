@@ -675,6 +675,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 );
                 setShowSoldOut(null);
                 fetchPieces();
+                fetchBoxDetails();
                 alert(`Piece "${showSoldOut.barcode}" marked as sold out ✅`);
               } catch (err) {
                 console.error("Error selling piece:", err);

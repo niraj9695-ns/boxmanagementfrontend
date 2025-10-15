@@ -77,15 +77,13 @@ export default function PieceManagement({ container, boxId, onBack }) {
   const activeBoxId = container?.id || boxId;
 
   async function fetchBoxDetails() {
-    if (!boxId && !container?.id) return;
+    const id = container?.id || boxId;
+    if (!id) return;
     try {
-      const res = await axios.get(
-        `http://localhost:8080/api/boxes/${container.id}`,
-        {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        }
-      );
-      setBox(res.data);
+      const res = await axios.get(`http://localhost:8080/api/boxes/${id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      setBox(res.data); // ✅ update state that drives weight cards
     } catch (err) {
       console.error("Error fetching box details:", err);
     }
@@ -703,15 +701,14 @@ export default function PieceManagement({ container, boxId, onBack }) {
               try {
                 await axios.post(
                   `http://localhost:8080/api/pieces/sell?pieceId=${showSoldOut.id}`,
-                  {}, // empty body since backend only expects param
+                  {},
                   {
-                    headers: {
-                      Authorization: `Bearer ${getToken()}`,
-                    },
+                    headers: { Authorization: `Bearer ${getToken()}` },
                   }
                 );
                 setShowSoldOut(null);
-                fetchPieces(); // refresh table after selling
+                await fetchPieces(); // ✅ sequential refresh
+                await fetchBoxDetails(); // ✅ ensure updated box weights
                 toast.success(
                   `Piece "${showSoldOut.barcode}" marked as sold out `
                 );

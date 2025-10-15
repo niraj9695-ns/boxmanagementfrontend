@@ -135,16 +135,21 @@ const BoxesTab = () => {
   );
 
   /* 🔹 Conditional Rendering */
+  /* 🔹 Conditional Rendering */
   if (view === "pieces") {
     return (
       <div>
         <button
           className="btn btn-secondary flex items-center gap-2 mb-4"
-          onClick={() => setView("boxes")}
+          onClick={() => {
+            setView("boxes");
+            refreshBoxes(); // 🔹 Refresh boxes when returning
+          }}
         >
           <ArrowLeft size={18} /> Back to Boxes
         </button>
-        {/* 🔹 Now using only boxId (PieceManagement will fetch details itself) */}
+
+        {/* 🔹 Pass only boxId (PieceManagement will fetch details itself) */}
         <PieceManagementBox boxId={selectedBoxId} />
       </div>
     );
