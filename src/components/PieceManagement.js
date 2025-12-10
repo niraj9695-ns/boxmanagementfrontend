@@ -12,16 +12,12 @@ import {
   Move,
   Edit2,
   Trash2,
+  X,
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import { DatePicker } from "@mui/x-date-pickers/DatePicker";
-import dayjs from "dayjs";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { X } from "lucide-react";
 
 /* 🔹 Utility: Get JWT token */
 function getToken() {
@@ -54,7 +50,22 @@ export default function PieceManagement({ container, boxId, onBack }) {
   const [loading, setLoading] = useState(true);
   const [box, setBox] = useState(container);
 
-  // Modal states
+  // 🔹 Loose items
+  const [looseItems, setLooseItems] = useState([]);
+  const [showLooseCreate, setShowLooseCreate] = useState(false);
+  const [looseForm, setLooseForm] = useState({
+    name: "",
+    netWeight: "",
+    variableWeight: "",
+  });
+
+  const [showLooseEdit, setShowLooseEdit] = useState(null);
+  const [showLooseTransfer, setShowLooseTransfer] = useState(null);
+  const [showLooseSell, setShowLooseSell] = useState(null);
+  const [looseSellWeight, setLooseSellWeight] = useState("");
+  const [looseDeleteModal, setLooseDeleteModal] = useState(null);
+
+  // Modal states for pieces
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(null);
   const [showTransfer, setShowTransfer] = useState(null); // piece object
@@ -65,48 +76,58 @@ export default function PieceManagement({ container, boxId, onBack }) {
   const [showSoldOut, setShowSoldOut] = useState(null); // piece object
   const [deleteModal, setDeleteModal] = useState(null);
 
-  // Form state for Add
+  // Lookup options
+  const [purityOptions, setPurityOptions] = useState([]);
+  const [typeOptions, setTypeOptions] = useState([]);
+
+  // Form state for Add Piece
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split("T")[0],
     barcode: "",
     type: "",
-    weight: "",
-    vweight: "",
+    purity: "",
+    netWeight: "",
+    variableWeight: "",
   });
 
   const activeBoxId = container?.id || boxId;
 
+  /* 🔹 Fetch box details (GET /api/box/getById?id=) */
   async function fetchBoxDetails() {
-    const id = container?.id || boxId;
+    const id = activeBoxId;
     if (!id) return;
     try {
-      const res = await axios.get(`http://localhost:8080/api/boxes/${id}`, {
+      const res = await axios.get("http://localhost:8080/api/box/getById", {
         headers: { Authorization: `Bearer ${getToken()}` },
+        params: { id },
       });
-      setBox(res.data); // ✅ update state that drives weight cards
+      setBox(res.data);
     } catch (err) {
       console.error("Error fetching box details:", err);
     }
   }
 
-  /* 🔹 Fetch Pieces */
+  /* 🔹 Fetch Pieces (GET /api/pieces/getByBoxId?boxId=) */
   useEffect(() => {
     fetchPieces();
+    fetchLooseItems(); // also load loose items when box/container changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [container.id]);
 
   async function fetchPieces() {
-    if (!container?.id) return;
+    if (!activeBoxId) return;
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:8080/api/pieces/by-box", {
-        headers: {
-          Authorization: `Bearer ${getToken()}`,
-        },
-        params: {
-          boxId: container.id,
-        },
-      });
+      const res = await axios.get(
+        "http://localhost:8080/api/pieces/getByBoxId",
+        {
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+          },
+          params: {
+            boxId: activeBoxId,
+          },
+        }
+      );
       setPieces(res.data);
       fetchBoxDetails();
     } catch (err) {
@@ -116,10 +137,59 @@ export default function PieceManagement({ container, boxId, onBack }) {
     }
   }
 
-  /* 🔹 Handle form changes */
+  /* 🔹 Fetch Loose Items (GET /api/loose/getAll) */
+  async function fetchLooseItems() {
+    if (!activeBoxId) return;
+
+    try {
+      const res = await axios.get(
+        "http://localhost:8080/api/loose/getByBoxId",
+        {
+          headers: { Authorization: `Bearer ${getToken()}` },
+          params: { boxId: activeBoxId },
+        }
+      );
+
+      setLooseItems(res.data || []);
+    } catch (err) {
+      console.error("Error fetching loose items:", err);
+      toast.error("Failed to load loose items");
+    }
+  }
+
+  /* 🔹 Fetch purity & type options (GET /purity/getAll, /type/getAll) */
+  useEffect(() => {
+    const fetchLookups = async () => {
+      try {
+        const [purityRes, typeRes] = await Promise.all([
+          axios.get("http://localhost:8080/purity/getAll", {
+            headers: { Authorization: `Bearer ${getToken()}` },
+          }),
+          axios.get("http://localhost:8080/type/getAll", {
+            headers: { Authorization: `Bearer ${getToken()}` },
+          }),
+        ]);
+        setPurityOptions(purityRes.data || []);
+        setTypeOptions(typeRes.data || []);
+      } catch (err) {
+        console.error("Error fetching purity/type options:", err);
+        toast.error("Failed to load purity/type options");
+      }
+    };
+
+    fetchLookups();
+  }, []);
+
+  /* 🔹 Handle form changes (Add Piece) */
   const handleChange = (e) => {
     const { id, value } = e.target;
     setFormData((prev) => ({ ...prev, [id]: value }));
+  };
+
+  /* 🔹 Handle form changes (Add Loose Item) */
+  const handleLooseChange = (e) => {
+    const { id, value } = e.target;
+    setLooseForm((prev) => ({ ...prev, [id]: value }));
   };
 
   /* 🔹 Add Piece Submit */
@@ -129,13 +199,12 @@ export default function PieceManagement({ container, boxId, onBack }) {
       await axios.post(
         "http://localhost:8080/api/pieces",
         {
-          date: formData.date,
-          counterId: container.counterId,
-          boxId: container.id,
-          barcode: formData.barcode,
+          barcode: formData.barcode || null,
           type: formData.type,
-          weight: parseFloat(formData.weight),
-          vweight: parseFloat(formData.vweight),
+          purity: formData.purity,
+          netWeight: parseFloat(formData.netWeight),
+          variableWeight: parseFloat(formData.variableWeight),
+          boxId: activeBoxId,
         },
         {
           headers: {
@@ -143,74 +212,156 @@ export default function PieceManagement({ container, boxId, onBack }) {
           },
         }
       );
-      toast.success("Piece added succesfully ");
+      toast.success("Piece added successfully");
 
-      setShowCreate(false);
-      setFormData({
-        date: new Date().toISOString().split("T")[0],
+      // Keep modal open, but clear barcode & weights
+      setFormData((prev) => ({
+        ...prev,
         barcode: "",
-        type: "",
-        weight: "",
-        vweight: "",
-      });
+        netWeight: "",
+        variableWeight: "",
+      }));
+
       fetchPieces();
       fetchBoxDetails();
     } catch (err) {
       console.error("Error adding piece:", err);
-      toast.error("Failed to add piece ");
+      toast.error("Failed to add piece");
     }
   };
 
-  /* 🔹 Edit Piece Submit */
+  /* 🔹 Add Loose Item Submit (POST /api/loose) */
+  const handleLooseSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(
+        "http://localhost:8080/api/loose",
+        {
+          name: looseForm.name,
+          netWeight: parseFloat(looseForm.netWeight),
+          variableWeight: parseFloat(looseForm.variableWeight),
+          boxId: activeBoxId,
+        },
+        {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        }
+      );
+
+      toast.success("Loose item added successfully");
+
+      // Close modal & clear form
+      setShowLooseCreate(false);
+      setLooseForm({
+        name: "",
+        netWeight: "",
+        variableWeight: "",
+      });
+
+      fetchLooseItems();
+      fetchBoxDetails();
+    } catch (err) {
+      console.error("Error adding loose item:", err);
+      toast.error("Failed to add loose item");
+    }
+  };
+
+  /* 🔹 Edit Piece Submit (PUT /api/pieces?id=…) */
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     try {
       await axios.put(
-        `http://localhost:8080/api/pieces/${showEdit.id}`,
+        "http://localhost:8080/api/pieces",
         {
-          date: showEdit.date,
-          counterId: container.counterId,
-          boxId: container.id,
-          barcode: showEdit.barcode,
+          barcode: showEdit.barcode || null,
           type: showEdit.type,
-          weight: parseFloat(showEdit.weight),
-          vweight: parseFloat(showEdit.vweight),
+          purity: showEdit.purity,
+          netWeight: parseFloat(showEdit.netWeight),
+          variableWeight: parseFloat(showEdit.variableWeight),
+          boxId: activeBoxId,
         },
         {
           headers: {
             Authorization: `Bearer ${getToken()}`,
           },
+          params: {
+            id: showEdit.id,
+          },
         }
       );
-      toast.success("Piece updated succesfully ");
+      toast.success("Piece updated successfully");
 
       setShowEdit(null);
       fetchPieces();
       fetchBoxDetails();
     } catch (err) {
       console.error("Error updating piece:", err);
-      toast.error("Failed to update piece ");
+      toast.error("Failed to update piece");
     }
   };
 
-  // open transfer modal
+  /* 🔹 Edit Loose Item Submit (PUT /api/loose?id=…) */
+  const handleLooseEditSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.put(
+        "http://localhost:8080/api/loose",
+        {
+          name: showLooseEdit.name,
+          netWeight: parseFloat(showLooseEdit.netWeight),
+          variableWeight: parseFloat(showLooseEdit.variableWeight),
+        },
+        {
+          headers: { Authorization: `Bearer ${getToken()}` },
+          params: { id: showLooseEdit.id },
+        }
+      );
+      toast.success("Loose item updated successfully");
+      setShowLooseEdit(null);
+      fetchLooseItems();
+      fetchBoxDetails();
+    } catch (err) {
+      console.error("Error updating loose item:", err);
+      toast.error("Failed to update loose item");
+    }
+  };
+
+  /* 🔹 Open Transfer modal + fetch counters (GET /api/counter/getAll) for pieces */
   const handleTransfer = async (piece) => {
-    setShowTransfer(piece); // ✅ keep whole object
+    setShowTransfer(piece); // keep whole object
     setSelectedCounter("");
     setSelectedContainer("");
     setContainers([]);
 
     try {
-      const res = await axios.get("http://localhost:8080/api/counters", {
+      const res = await axios.get("http://localhost:8080/api/counter/getAll", {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      setCounters(res.data); // fills Counter dropdown
+    } catch (err) {
+      console.error("Error fetching counters:", err);
+      toast.error("Failed to load counters");
+    }
+  };
+
+  /* 🔹 Open Transfer modal for loose items */
+  const handleLooseTransferOpen = async (item) => {
+    setShowLooseTransfer(item);
+    setSelectedCounter("");
+    setSelectedContainer("");
+    setContainers([]);
+
+    try {
+      const res = await axios.get("http://localhost:8080/api/counter/getAll", {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       setCounters(res.data);
     } catch (err) {
       console.error("Error fetching counters:", err);
+      toast.error("Failed to load counters");
     }
   };
 
-  // fetch containers when counter changes
+  /* 🔹 When counter changes, fetch boxes for that counter */
   const handleCounterChange = async (counterId) => {
     setSelectedCounter(counterId);
     setSelectedContainer("");
@@ -221,19 +372,20 @@ export default function PieceManagement({ container, boxId, onBack }) {
 
     try {
       const res = await axios.get(
-        "http://localhost:8080/api/boxes/by-counter",
+        "http://localhost:8080/api/box/getByCounterId",
         {
           headers: { Authorization: `Bearer ${getToken()}` },
           params: { counterId },
         }
       );
-      setContainers(res.data);
+      setContainers(res.data); // fills Box dropdown
     } catch (err) {
       console.error("Error fetching containers:", err);
+      toast.error("Failed to load containers");
     }
   };
 
-  // submit transfer
+  /* 🔹 Submit Transfer (POST /api/pieces/transfer?pieceId=&boxId=) */
   const handleTransferSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCounter || !selectedContainer) {
@@ -241,26 +393,18 @@ export default function PieceManagement({ container, boxId, onBack }) {
       return;
     }
 
-    console.log(
-      "Submitting transfer:",
-      "pieceId=",
-      showTransfer?.id,
-      "targetBoxId=",
-      selectedContainer
-    );
-
     try {
-      await axios.post(
-        `http://localhost:8080/api/pieces/transfer?pieceId=${showTransfer.id}&targetBoxId=${selectedContainer}`,
-        null,
-        {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        }
-      );
+      await axios.post("http://localhost:8080/api/pieces/transfer", null, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: {
+          pieceId: showTransfer.id,
+          boxId: selectedContainer,
+        },
+      });
       toast.success("Transferred successfully!");
 
       setShowTransfer(null);
-      fetchPieces(); // refresh table
+      fetchPieces();
       fetchBoxDetails();
     } catch (err) {
       console.error("Error transferring piece:", err);
@@ -268,6 +412,34 @@ export default function PieceManagement({ container, boxId, onBack }) {
     }
   };
 
+  /* 🔹 Submit Loose Transfer (POST /api/loose/transfer?itemId=&boxId=) */
+  const handleLooseTransferSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedCounter || !selectedContainer) {
+      toast.warning("Please select both counter and container.");
+      return;
+    }
+
+    try {
+      await axios.post("http://localhost:8080/api/loose/transfer", null, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: {
+          itemId: showLooseTransfer.id,
+          boxId: selectedContainer,
+        },
+      });
+      toast.success("Loose item transferred successfully!");
+
+      setShowLooseTransfer(null);
+      fetchLooseItems();
+      fetchBoxDetails();
+    } catch (err) {
+      console.error("Error transferring loose item:", err);
+      toast.error("Failed to transfer loose item.");
+    }
+  };
+
+  /* 🔹 Delete Piece */
   const handleDelete = async (id) => {
     try {
       await axios.delete(`http://localhost:8080/api/pieces/${id}`, {
@@ -275,19 +447,64 @@ export default function PieceManagement({ container, boxId, onBack }) {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      setDeleteModal(null); // close modal
-      fetchPieces(); // refresh table
+      setDeleteModal(null);
+      fetchPieces();
       fetchBoxDetails();
-      toast.success("Piece deleted successfully ");
+      toast.success("Piece deleted successfully");
     } catch (err) {
       console.error("Error deleting piece:", err);
-      toast.error("Failed to delete piece ");
+      toast.error("Failed to delete piece");
     }
   };
 
-  // 🔹 Table action placeholders
+  /* 🔹 Delete Loose Item */
+  const handleLooseDelete = async (id) => {
+    try {
+      await axios.delete(`http://localhost:8080/api/loose/${id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      setLooseDeleteModal(null);
+      fetchLooseItems();
+      fetchBoxDetails();
+      toast.success("Loose item deleted successfully");
+    } catch (err) {
+      console.error("Error deleting loose item:", err);
+      toast.error("Failed to delete loose item");
+    }
+  };
+
   const handleSell = (piece) => setShowSoldOut(piece);
-  // const handleDelete = (id) => console.log("Delete piece:", id);
+  const handleLooseSellOpen = (item) => {
+    setShowLooseSell(item);
+    setLooseSellWeight("");
+  };
+
+  /* 🔹 Submit Loose Sell (POST /api/loose/sell?id=&weight=) */
+  const handleLooseSellSubmit = async (e) => {
+    e.preventDefault();
+    if (!looseSellWeight || parseFloat(looseSellWeight) <= 0) {
+      toast.warning("Please enter a valid weight.");
+      return;
+    }
+
+    try {
+      await axios.post("http://localhost:8080/api/loose/sell", null, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: {
+          id: showLooseSell.id,
+          weight: parseFloat(looseSellWeight),
+        },
+      });
+      toast.success("Loose item sold successfully!");
+      setShowLooseSell(null);
+      setLooseSellWeight("");
+      fetchLooseItems();
+      fetchBoxDetails();
+    } catch (err) {
+      console.error("Error selling loose item:", err);
+      toast.error("Failed to sell loose item");
+    }
+  };
 
   return (
     <div id="pieceManagement">
@@ -306,10 +523,21 @@ export default function PieceManagement({ container, boxId, onBack }) {
           <ArrowLeft size={16} /> Back to Containers
         </button>
 
+        {/* Add Loose Item Button */}
+        <button
+          id="addLooseItemBtn"
+          className="btn btn-warning flex items-center gap-1"
+          onClick={() => setShowLooseCreate(true)}
+          style={{ marginLeft: "0.75rem" }}
+        >
+          <Package2 size={16} /> Add Loose Item
+        </button>
+
         <button
           id="addPieceBtn"
           className="btn btn-success flex items-center gap-1"
           onClick={() => setShowCreate(true)}
+          style={{ marginLeft: "0.75rem" }}
         >
           <Plus size={16} /> Add Piece
         </button>
@@ -357,7 +585,7 @@ export default function PieceManagement({ container, boxId, onBack }) {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Pieces Table */}
       <div className="table-container">
         <table className="data-table">
           <thead>
@@ -365,8 +593,9 @@ export default function PieceManagement({ container, boxId, onBack }) {
               <th>Date</th>
               <th>Barcode</th>
               <th>Type</th>
-              <th>Weight (g)</th>
-              <th>VWeight (g)</th>
+              <th>Purity</th>
+              <th>Net Weight (g)</th>
+              <th>Variable Weight (g)</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -374,13 +603,13 @@ export default function PieceManagement({ container, boxId, onBack }) {
           <tbody id="piecesTableBody">
             {loading ? (
               <tr>
-                <td colSpan={7} className="text-center py-6">
+                <td colSpan={8} className="text-center py-6">
                   Loading...
                 </td>
               </tr>
             ) : pieces.length === 0 ? (
               <tr>
-                <td colSpan={7} className="empty-state text-center py-6">
+                <td colSpan={8} className="empty-state text-center py-6">
                   <div className="flex flex-col items-center">
                     <Gem size={32} />
                     <h3 className="font-semibold">No pieces found</h3>
@@ -389,48 +618,127 @@ export default function PieceManagement({ container, boxId, onBack }) {
                 </td>
               </tr>
             ) : (
-              pieces.map((piece) => (
-                <tr key={piece.id}>
-                  <td>{new Date(piece.date).toLocaleDateString()}</td>
-                  <td className="font-semibold">{piece.barcode}</td>
-                  <td>{piece.type}</td>
-                  <td>{piece.weight}g</td>
-                  <td>{piece.vweight}g</td>
+              pieces.map((piece) => {
+                const statusLabel = piece.sold ? "SOLD" : "AVAILABLE";
+                const statusClass = piece.sold
+                  ? "status-sold"
+                  : "status-available";
+
+                return (
+                  <tr key={piece.id}>
+                    <td>
+                      {piece.createdAt
+                        ? new Date(piece.createdAt).toLocaleDateString()
+                        : "-"}
+                    </td>
+                    <td className="font-semibold">{piece.barcode || "-"}</td>
+                    <td>{piece.type}</td>
+                    <td>{piece.purity}</td>
+                    <td>{piece.netWeight}g</td>
+                    <td>{piece.variableWeight}g</td>
+                    <td>
+                      <span className={`status-badge ${statusClass}`}>
+                        {statusLabel}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="action-buttons">
+                        <button
+                          className="btn btn-small btn-success"
+                          onClick={() => handleSell(piece)}
+                          disabled={piece.sold}
+                        >
+                          <ShoppingCart size={14} /> Sell
+                        </button>
+
+                        <button
+                          className="btn btn-small btn-primary"
+                          onClick={() => handleTransfer(piece)}
+                        >
+                          <Move size={14} /> Transfer
+                        </button>
+                        <button
+                          className="btn btn-small btn-warning flex items-center gap-1"
+                          onClick={() => setShowEdit(piece)}
+                        >
+                          <Edit2 size={14} /> Edit
+                        </button>
+                        <button
+                          className="btn btn-small btn-danger flex items-center gap-1"
+                          onClick={() => setDeleteModal(piece)}
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Loose Items Table */}
+      <div className="table-container" style={{ marginTop: "2rem" }}>
+        <h3 className="mb-3">Loose Items</h3>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Name</th>
+              <th>Net Weight (g)</th>
+              <th>Variable Weight (g)</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {looseItems.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="text-center py-4">
+                  No loose items found for this box.
+                </td>
+              </tr>
+            ) : (
+              looseItems.map((item) => (
+                <tr key={item.id}>
                   <td>
-                    <span
-                      className={`status-badge ${
-                        piece.status === "AVAILABLE"
-                          ? "status-available"
-                          : "status-sold"
-                      }`}
-                    >
-                      {piece.status}
-                    </span>
+                    {item.createdAt
+                      ? new Date(item.createdAt).toLocaleDateString()
+                      : "-"}
                   </td>
+                  <td className="font-semibold">{item.name}</td>
+                  <td>{item.netWeight}g</td>
+                  <td>{item.variableWeight}g</td>
+                  <td>{item.sold ? "SOLD" : "AVAILABLE"}</td>
                   <td>
                     <div className="action-buttons">
                       <button
                         className="btn btn-small btn-success"
-                        onClick={() => handleSell(piece)} // ✅ pass whole object
+                        onClick={() => handleLooseSellOpen(item)}
+                        disabled={item.sold}
                       >
                         <ShoppingCart size={14} /> Sell
                       </button>
 
                       <button
                         className="btn btn-small btn-primary"
-                        onClick={() => handleTransfer(piece)} // ✅ pass whole object
+                        onClick={() => handleLooseTransferOpen(item)}
                       >
                         <Move size={14} /> Transfer
                       </button>
+
                       <button
                         className="btn btn-small btn-warning flex items-center gap-1"
-                        onClick={() => setShowEdit(piece)}
+                        onClick={() => setShowLooseEdit(item)}
                       >
                         <Edit2 size={14} /> Edit
                       </button>
+
                       <button
                         className="btn btn-small btn-danger flex items-center gap-1"
-                        onClick={() => setDeleteModal(piece)} // ✅ open confirmation modal
+                        onClick={() => setLooseDeleteModal(item)}
                       >
                         <Trash2 size={14} /> Delete
                       </button>
@@ -443,33 +751,10 @@ export default function PieceManagement({ container, boxId, onBack }) {
         </table>
       </div>
 
-      {/* Create Modal */}
+      {/* Create Piece Modal */}
       {showCreate && (
         <Modal title="Add New Piece" onClose={() => setShowCreate(false)}>
           <form onSubmit={handleAddSubmit} className="piece-form">
-            <div className="form-group">
-              <label>Date</label>
-              <LocalizationProvider dateAdapter={AdapterDayjs}>
-                <DatePicker
-                  format="YYYY-MM-DD"
-                  value={dayjs(formData.date)}
-                  onChange={(newValue) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      date: dayjs(newValue).format("YYYY-MM-DD"),
-                    }))
-                  }
-                  slotProps={{
-                    textField: {
-                      size: "small",
-                      fullWidth: true,
-                      required: true,
-                    },
-                  }}
-                />
-              </LocalizationProvider>
-            </div>
-
             <div className="form-group">
               <label>Barcode</label>
               <input
@@ -477,38 +762,62 @@ export default function PieceManagement({ container, boxId, onBack }) {
                 id="barcode"
                 value={formData.barcode}
                 onChange={handleChange}
-                // required
               />
             </div>
+
             <div className="form-group">
               <label>Type</label>
-              <input
-                type="text"
+              <select
                 id="type"
                 value={formData.type}
                 onChange={handleChange}
                 required
-              />
+              >
+                <option value="">Select Type</option>
+                {typeOptions.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            <div className="form-group">
+              <label>Purity</label>
+              <select
+                id="purity"
+                value={formData.purity}
+                onChange={handleChange}
+                required
+              >
+                <option value="">Select Purity</option>
+                {purityOptions.map((p) => (
+                  <option key={p.id} value={p.purity}>
+                    {p.purity}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="form-row">
               <div className="form-group">
-                <label>Weight (g)</label>
+                <label>Net Weight (g)</label>
                 <input
                   type="number"
-                  id="weight"
+                  id="netWeight"
                   step="0.01"
-                  value={formData.weight}
+                  value={formData.netWeight}
                   onChange={handleChange}
                   required
                 />
               </div>
               <div className="form-group">
-                <label>VWeight (g)</label>
+                <label>Variable Weight (g)</label>
                 <input
                   type="number"
-                  id="vweight"
+                  id="variableWeight"
                   step="0.01"
-                  value={formData.vweight}
+                  value={formData.variableWeight}
                   onChange={handleChange}
                   required
                 />
@@ -530,76 +839,146 @@ export default function PieceManagement({ container, boxId, onBack }) {
         </Modal>
       )}
 
-      {/* Edit Modal */}
+      {/* Add Loose Item Modal */}
+      {showLooseCreate && (
+        <Modal
+          title="Add New Loose Item"
+          onClose={() => setShowLooseCreate(false)}
+        >
+          <form onSubmit={handleLooseSubmit} className="piece-form">
+            <div className="form-group">
+              <label>Item Name</label>
+              <input
+                type="text"
+                id="name"
+                placeholder="Enter item name"
+                value={looseForm.name}
+                onChange={handleLooseChange}
+                required
+              />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Net Weight (grams)</label>
+                <input
+                  type="number"
+                  id="netWeight"
+                  placeholder="Net weight"
+                  step="0.01"
+                  value={looseForm.netWeight}
+                  onChange={handleLooseChange}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Variable Weight (grams)</label>
+                <input
+                  type="number"
+                  id="variableWeight"
+                  placeholder="Variable weight"
+                  step="0.01"
+                  value={looseForm.variableWeight}
+                  onChange={handleLooseChange}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => setShowLooseCreate(false)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-warning">
+                Add Loose Item
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Edit Piece Modal */}
       {showEdit && (
         <Modal title="Edit Piece" onClose={() => setShowEdit(null)}>
           <form onSubmit={handleEditSubmit} className="piece-form">
             <div className="form-group">
-              <label>Date</label>
-              <LocalizationProvider dateAdapter={AdapterDayjs}>
-                <DatePicker
-                  format="YYYY-MM-DD"
-                  value={dayjs(showEdit.date)}
-                  onChange={(newValue) =>
-                    setShowEdit({
-                      ...showEdit,
-                      date: dayjs(newValue).format("YYYY-MM-DD"),
-                    })
-                  }
-                  slotProps={{
-                    textField: {
-                      size: "small",
-                      fullWidth: true,
-                      required: true,
-                    },
-                  }}
-                />
-              </LocalizationProvider>
-            </div>
-
-            <div className="form-group">
               <label>Barcode</label>
               <input
                 type="text"
-                value={showEdit.barcode}
+                value={showEdit.barcode || ""}
                 onChange={(e) =>
                   setShowEdit({ ...showEdit, barcode: e.target.value })
                 }
-                required
               />
             </div>
+
             <div className="form-group">
               <label>Type</label>
-              <input
-                type="text"
+              <select
                 value={showEdit.type}
                 onChange={(e) =>
                   setShowEdit({ ...showEdit, type: e.target.value })
                 }
                 required
-              />
+              >
+                <option value="">Select Type</option>
+                {typeOptions.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            <div className="form-group">
+              <label>Purity</label>
+              <select
+                value={showEdit.purity || ""}
+                onChange={(e) =>
+                  setShowEdit({ ...showEdit, purity: e.target.value })
+                }
+                required
+              >
+                <option value="">Select Purity</option>
+                {purityOptions.map((p) => (
+                  <option key={p.id} value={p.purity}>
+                    {p.purity}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="form-row">
               <div className="form-group">
-                <label>Weight (g)</label>
+                <label>Net Weight (g)</label>
                 <input
                   type="number"
                   step="0.01"
-                  value={showEdit.weight}
+                  value={showEdit.netWeight}
                   onChange={(e) =>
-                    setShowEdit({ ...showEdit, weight: e.target.value })
+                    setShowEdit({
+                      ...showEdit,
+                      netWeight: e.target.value,
+                    })
                   }
                   required
                 />
               </div>
               <div className="form-group">
-                <label>VWeight (g)</label>
+                <label>Variable Weight (g)</label>
                 <input
                   type="number"
                   step="0.01"
-                  value={showEdit.vweight}
+                  value={showEdit.variableWeight}
                   onChange={(e) =>
-                    setShowEdit({ ...showEdit, vweight: e.target.value })
+                    setShowEdit({
+                      ...showEdit,
+                      variableWeight: e.target.value,
+                    })
                   }
                   required
                 />
@@ -621,7 +1000,72 @@ export default function PieceManagement({ container, boxId, onBack }) {
         </Modal>
       )}
 
-      {/* Transfer Modal */}
+      {/* Edit Loose Item Modal */}
+      {showLooseEdit && (
+        <Modal title="Edit Loose Item" onClose={() => setShowLooseEdit(null)}>
+          <form onSubmit={handleLooseEditSubmit} className="piece-form">
+            <div className="form-group">
+              <label>Item Name</label>
+              <input
+                type="text"
+                value={showLooseEdit.name || ""}
+                onChange={(e) =>
+                  setShowLooseEdit({ ...showLooseEdit, name: e.target.value })
+                }
+                required
+              />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Net Weight (g)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={showLooseEdit.netWeight}
+                  onChange={(e) =>
+                    setShowLooseEdit({
+                      ...showLooseEdit,
+                      netWeight: e.target.value,
+                    })
+                  }
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Variable Weight (g)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={showLooseEdit.variableWeight}
+                  onChange={(e) =>
+                    setShowLooseEdit({
+                      ...showLooseEdit,
+                      variableWeight: e.target.value,
+                    })
+                  }
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => setShowLooseEdit(null)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-warning">
+                Update Loose Item
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Transfer Piece Modal */}
       {showTransfer && (
         <Modal title="Transfer Piece" onClose={() => setShowTransfer(null)}>
           <form onSubmit={handleTransferSubmit} className="piece-form">
@@ -692,7 +1136,83 @@ export default function PieceManagement({ container, boxId, onBack }) {
           </form>
         </Modal>
       )}
-      {/* Sold Out Modal */}
+
+      {/* Transfer Loose Item Modal */}
+      {showLooseTransfer && (
+        <Modal
+          title="Transfer Loose Item"
+          onClose={() => setShowLooseTransfer(null)}
+        >
+          <form onSubmit={handleLooseTransferSubmit} className="piece-form">
+            {/* Current Location */}
+            <div className="form-group">
+              <label>Current Location</label>
+              <div
+                style={{
+                  padding: "0.75rem",
+                  background: "#f8fafc",
+                  borderRadius: "6px",
+                  color: "#64748b",
+                }}
+              >
+                {`Counter ${container.counterId} → Box #${container.identity}`}
+              </div>
+            </div>
+
+            <div className="transfer-options form-row">
+              {/* Counter Dropdown */}
+              <div className="form-group">
+                <label>Target Counter</label>
+                <select
+                  value={selectedCounter}
+                  onChange={(e) => handleCounterChange(e.target.value)}
+                  required
+                >
+                  <option value="">Select Counter</option>
+                  {counters.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Container Dropdown */}
+              <div className="form-group">
+                <label>Target Container</label>
+                <select
+                  value={selectedContainer}
+                  onChange={(e) => setSelectedContainer(e.target.value)}
+                  required
+                  disabled={!containers.length}
+                >
+                  <option value="">Select Container</option>
+                  {containers.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      Box #{b.identity}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => setShowLooseTransfer(null)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                Transfer Loose Item
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Sold Out Piece Modal */}
       {showSoldOut && (
         <Modal title="Mark as Sold Out" onClose={() => setShowSoldOut(null)}>
           <form
@@ -700,21 +1220,24 @@ export default function PieceManagement({ container, boxId, onBack }) {
               e.preventDefault();
               try {
                 await axios.post(
-                  `http://localhost:8080/api/pieces/sell?pieceId=${showSoldOut.id}`,
-                  {},
+                  "http://localhost:8080/api/pieces/sold",
+                  null,
                   {
                     headers: { Authorization: `Bearer ${getToken()}` },
+                    params: { id: showSoldOut.id },
                   }
                 );
                 setShowSoldOut(null);
-                await fetchPieces(); // ✅ sequential refresh
-                await fetchBoxDetails(); // ✅ ensure updated box weights
+                await fetchPieces();
+                await fetchBoxDetails();
                 toast.success(
-                  `Piece "${showSoldOut.barcode}" marked as sold out `
+                  `Piece "${
+                    showSoldOut.barcode || showSoldOut.id
+                  }" marked as sold`
                 );
               } catch (err) {
                 console.error("Error selling piece:", err);
-                toast.error("Failed to mark as sold out ");
+                toast.error("Failed to mark as sold");
               }
             }}
             className="piece-form"
@@ -722,11 +1245,12 @@ export default function PieceManagement({ container, boxId, onBack }) {
             <div className="form-group">
               <p>
                 Are you sure you want to mark piece{" "}
-                <strong>{showSoldOut.barcode}</strong> as sold out?
+                <strong>{showSoldOut.barcode || showSoldOut.id}</strong> as
+                sold?
               </p>
               <p>
                 <small style={{ color: "#dc2626" }}>
-                  This will change the status to sold out.
+                  This will change the status to sold.
                 </small>
               </p>
             </div>
@@ -740,21 +1264,60 @@ export default function PieceManagement({ container, boxId, onBack }) {
                 Cancel
               </button>
               <button type="submit" className="btn btn-success">
-                Mark as Sold Out
+                Mark as Sold
               </button>
             </div>
           </form>
         </Modal>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {/* Delete Confirmation Modal */}
+      {/* Sell Loose Item Modal */}
+      {showLooseSell && (
+        <Modal title="Sell Loose Item" onClose={() => setShowLooseSell(null)}>
+          <form onSubmit={handleLooseSellSubmit} className="piece-form">
+            <div className="form-group">
+              <p>
+                Selling from loose item <strong>{showLooseSell.name}</strong>
+              </p>
+              <p>
+                Current net weight: <strong>{showLooseSell.netWeight}g</strong>
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label>Sell Weight (g)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={looseSellWeight}
+                onChange={(e) => setLooseSellWeight(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => setShowLooseSell(null)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-success">
+                Sell
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Delete Piece Confirmation Modal */}
       {deleteModal && (
         <Modal title="Delete Piece" onClose={() => setDeleteModal(null)}>
           <div className="form-group">
             <p>
               Are you sure you want to delete piece{" "}
-              <strong>{deleteModal.barcode}</strong>?
+              <strong>{deleteModal.barcode || deleteModal.id}</strong>?
             </p>
           </div>
 
@@ -768,13 +1331,45 @@ export default function PieceManagement({ container, boxId, onBack }) {
             </button>
             <button
               className="btn btn-danger"
-              onClick={() => handleDelete(deleteModal.id)} // ✅ use your handler
+              onClick={() => handleDelete(deleteModal.id)}
             >
               Delete
             </button>
           </div>
         </Modal>
       )}
+
+      {/* Delete Loose Item Confirmation Modal */}
+      {looseDeleteModal && (
+        <Modal
+          title="Delete Loose Item"
+          onClose={() => setLooseDeleteModal(null)}
+        >
+          <div className="form-group">
+            <p>
+              Are you sure you want to delete loose item{" "}
+              <strong>{looseDeleteModal.name || looseDeleteModal.id}</strong>?
+            </p>
+          </div>
+
+          <div className="form-actions flex justify-end gap-3 mt-6">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setLooseDeleteModal(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={() => handleLooseDelete(looseDeleteModal.id)}
+            >
+              Delete
+            </button>
+          </div>
+        </Modal>
+      )}
+
       <ToastContainer position="top-right" autoClose={3000} theme="colored" />
     </div>
   );

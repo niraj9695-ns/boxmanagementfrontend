@@ -12,6 +12,7 @@ import {
   Edit2,
   Trash2,
   Search,
+  X,
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
@@ -21,11 +22,64 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
-import { X } from "lucide-react";
 
 /* 🔹 Utility: Get JWT token */
 function getToken() {
   return localStorage.getItem("token");
+}
+
+/* 🔹 Try to decode JWT payload (returns object or null) */
+function decodeJwtPayload(token) {
+  try {
+    if (!token) return null;
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const payload = parts[1];
+    // Compatibility with URL-safe base64
+    const json = decodeURIComponent(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
+        .split("")
+        .map(function (c) {
+          return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+        })
+        .join("")
+    );
+    return JSON.parse(json);
+  } catch (err) {
+    console.warn("Failed to decode JWT payload:", err);
+    return null;
+  }
+}
+
+/* 🔹 Check if decoded payload contains ADMIN role */
+function hasAdminRole(decodedPayload) {
+  if (!decodedPayload) return false;
+
+  const possibleClaims = ["authorities", "roles", "role", "scope", "scp"];
+
+  for (const name of possibleClaims) {
+    const claim = decodedPayload[name];
+    if (!claim) continue;
+
+    if (Array.isArray(claim)) {
+      if (claim.find((r) => String(r).toUpperCase().includes("ADMIN"))) {
+        return true;
+      }
+    } else if (typeof claim === "string") {
+      if (claim.toUpperCase().includes("ADMIN")) return true;
+      const parts = claim.split(/[\s,;]+/);
+      if (parts.find((p) => p.toUpperCase().includes("ADMIN"))) return true;
+    } else if (typeof claim === "object") {
+      const str = JSON.stringify(claim).toUpperCase();
+      if (str.includes("ADMIN")) return true;
+    }
+  }
+
+  const stringified = JSON.stringify(decodedPayload).toUpperCase();
+  if (stringified.includes("ROLE_ADMIN") || stringified.includes("ADMIN"))
+    return true;
+
+  return false;
 }
 
 /* 🔹 Reusable Modal Component */
@@ -64,13 +118,18 @@ export default function GetAllPieces() {
   const [deleteModal, setDeleteModal] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Form state for Add
+  // Lookup options for dropdowns
+  const [purityOptions, setPurityOptions] = useState([]);
+  const [typeOptions, setTypeOptions] = useState([]);
+
+  // Form state for Add (match backend names)
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split("T")[0],
     barcode: "",
     type: "",
-    weight: "",
-    vweight: "",
+    purity: "",
+    netWeight: "",
+    variableWeight: "",
   });
 
   /* 🔹 Fetch All Pieces */
@@ -81,91 +140,176 @@ export default function GetAllPieces() {
   async function fetchPieces() {
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:8080/api/pieces", {
+      const res = await axios.get("http://localhost:8080/api/pieces/getAll", {
         headers: {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      setPieces(res.data);
+      setPieces(res.data || []);
     } catch (err) {
       console.error("Error fetching pieces:", err);
+      toast.error(
+        err?.response?.data?.message || "Failed to fetch pieces from server"
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  /* 🔹 Handle form changes */
+  /* 🔹 Fetch purity & type options for dropdowns */
+  useEffect(() => {
+    const fetchLookups = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+        const [purityRes, typeRes] = await Promise.all([
+          axios.get("http://localhost:8080/purity/getAll", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          axios.get("http://localhost:8080/type/getAll", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+        setPurityOptions(purityRes.data || []);
+        setTypeOptions(typeRes.data || []);
+      } catch (err) {
+        console.error("Error fetching purity/type options:", err);
+        toast.error("Failed to load purity/type options");
+      }
+    };
+
+    fetchLookups();
+  }, []);
+
+  /* 🔹 Handle form changes (works for inputs/selects with id matching keys) */
   const handleChange = (e) => {
     const { id, value } = e.target;
     setFormData((prev) => ({ ...prev, [id]: value }));
   };
 
-  /* 🔹 Add Piece Submit */
+  /* 🔹 Add Piece Submit
+     - Use dropdown values for type/purity
+     - Keep modal open after add
+     - Preserve last used type & purity
+     - Clear barcode, netWeight, variableWeight
+  */
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-    try {
-      await axios.post(
-        "http://localhost:8080/api/pieces",
-        {
-          date: formData.date,
-          counterId: selectedCounter,
-          boxId: selectedContainer,
-          barcode: formData.barcode,
-          type: formData.type,
-          weight: parseFloat(formData.weight),
-          vweight: parseFloat(formData.vweight),
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${getToken()}`,
-          },
-        }
+
+    const token = getToken();
+    if (!token) {
+      toast.error("Missing auth token — please login");
+      return;
+    }
+
+    const payload = decodeJwtPayload(token);
+    const isAdmin = hasAdminRole(payload);
+    if (!isAdmin) {
+      toast.error(
+        "You are not authorized to add pieces. ADMIN role is required. Please login with an admin account."
       );
+      console.warn("Token payload (decoded):", payload);
+      return;
+    }
+
+    if (!selectedContainer) {
+      toast.warn("Please select a Box before adding piece");
+      return;
+    }
+
+    try {
+      const body = {
+        barcode: formData.barcode || null,
+        type: formData.type,
+        purity: formData.purity || null,
+        netWeight: parseFloat(formData.netWeight || 0),
+        variableWeight: parseFloat(formData.variableWeight || 0),
+        boxId: Number(selectedContainer),
+        // createdAt: formData.date,
+      };
+
+      await axios.post("http://localhost:8080/api/pieces", body, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
       toast.success("Piece added successfully");
 
-      setShowCreate(false);
-      setFormData({
-        date: new Date().toISOString().split("T")[0],
+      // ✅ Keep modal open & preserve date/type/purity/box selection
+      setFormData((prev) => ({
+        ...prev,
         barcode: "",
-        type: "",
-        weight: "",
-        vweight: "",
-      });
+        netWeight: "",
+        variableWeight: "",
+      }));
+
+      // Do NOT reset selectedCounter/Container so user can keep adding to same box
       fetchPieces();
     } catch (err) {
       console.error("Error adding piece:", err);
-      toast.error("Failed to add piece");
+      if (err?.response?.status === 403) {
+        toast.error(
+          "Forbidden (403). Your account does not have permission to add pieces (ADMIN role required)."
+        );
+      } else {
+        toast.error(
+          err?.response?.data?.message ||
+            err?.response?.data ||
+            "Failed to add piece — check server logs"
+        );
+      }
     }
   };
 
   /* 🔹 Edit Piece Submit */
   const handleEditSubmit = async (e) => {
     e.preventDefault();
+
+    const token = getToken();
+    if (!token) {
+      toast.error("Missing auth token — please login");
+      return;
+    }
+
+    const payload = decodeJwtPayload(token);
+    const isAdmin = hasAdminRole(payload);
+    if (!isAdmin) {
+      toast.error("You need ADMIN role to update pieces.");
+      return;
+    }
+
     try {
       await axios.put(
-        `http://localhost:8080/api/pieces/${showEdit.id}`,
+        `http://localhost:8080/api/pieces?id=${showEdit.id}`,
         {
-          date: showEdit.date,
-          counterId: showEdit.counterId,
-          boxId: showEdit.boxId,
-          barcode: showEdit.barcode,
+          barcode: showEdit.barcode || null,
           type: showEdit.type,
-          weight: parseFloat(showEdit.weight),
-          vweight: parseFloat(showEdit.vweight),
+          purity: showEdit.purity || null,
+          netWeight: parseFloat(showEdit.netWeight || 0),
+          variableWeight: parseFloat(showEdit.variableWeight || 0),
+          boxId: showEdit.boxId ?? null,
         },
         {
           headers: {
-            Authorization: `Bearer ${getToken()}`,
+            Authorization: `Bearer ${token}`,
           },
         }
       );
-      toast.success("Piece updated successfully ");
 
+      toast.success("Piece updated successfully");
       setShowEdit(null);
       fetchPieces();
     } catch (err) {
       console.error("Error updating piece:", err);
-      toast.error("Failed to update piece ");
+      if (err?.response?.status === 403) {
+        toast.error("Forbidden (403). ADMIN role required to update pieces.");
+      } else {
+        toast.error(
+          err?.response?.data?.message ||
+            "Failed to update piece — check server"
+        );
+      }
     }
   };
 
@@ -177,91 +321,157 @@ export default function GetAllPieces() {
     setContainers([]);
 
     try {
-      const res = await axios.get("http://localhost:8080/api/counters", {
-        headers: { Authorization: `Bearer ${getToken()}` },
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login");
+        return;
+      }
+      const res = await axios.get("http://localhost:8080/api/counter/getAll", {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      setCounters(res.data);
+      setCounters(res.data || []);
     } catch (err) {
-      console.error("Error fetching counters:", err);
+      console.error(
+        "Error fetching counters for transfer:",
+        err,
+        err?.response
+      );
+      toast.error("Failed to fetch counters");
     }
   };
 
-  // fetch containers when counter changes
+  /* 🔹 Fetch boxes for a given counter id. */
   const handleCounterChange = async (counterId) => {
     setSelectedCounter(counterId);
     setSelectedContainer("");
+    setContainers([]);
+
     if (!counterId) {
-      setContainers([]);
+      return;
+    }
+
+    const numericId = Number(counterId);
+    if (Number.isNaN(numericId)) {
+      toast.error("Invalid counter selected");
+      console.error("handleCounterChange - invalid counterId:", counterId);
       return;
     }
 
     try {
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login");
+        return;
+      }
+
       const res = await axios.get(
-        "http://localhost:8080/api/boxes/by-counter",
+        "http://localhost:8080/api/box/getByCounterId",
         {
-          headers: { Authorization: `Bearer ${getToken()}` },
-          params: { counterId },
+          headers: { Authorization: `Bearer ${token}` },
+          params: { counterId: numericId },
         }
       );
-      setContainers(res.data);
+
+      if (Array.isArray(res.data)) {
+        setContainers(res.data);
+        if (res.data.length === 1) {
+          setSelectedContainer(String(res.data[0].id));
+        }
+      } else {
+        console.warn("Unexpected boxes response:", res.data);
+        setContainers([]);
+        toast.warn("No boxes returned for this counter");
+      }
     } catch (err) {
-      console.error("Error fetching containers:", err);
+      console.error(
+        "Error fetching containers (boxes):",
+        err,
+        err?.response?.data
+      );
+      const serverMsg =
+        err?.response?.data?.message || err?.response?.data || err.message;
+      toast.error(`Failed to fetch boxes: ${serverMsg}`);
     }
   };
 
-  /* 🔹 Handlers */
+  /* 🔹 Search handler */
   const handleSearch = (e) => {
     setSearchQuery(e.target.value);
   };
 
-  /* 🔹 Filtered boxes */
-  const filteredPieces = pieces.filter(
-    (piece) =>
-      piece.barcode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      piece.type?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      piece.counterName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      piece.box?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  /* 🔹 Filtered pieces */
+  const filteredPieces = pieces.filter((piece) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      String(piece.barcode || "")
+        .toLowerCase()
+        .includes(q) ||
+      String(piece.type || "")
+        .toLowerCase()
+        .includes(q) ||
+      String(piece.purity || "")
+        .toLowerCase()
+        .includes(q) ||
+      String(piece.boxId || "")
+        .toLowerCase()
+        .includes(q)
+    );
+  });
+
   // submit transfer
   const handleTransferSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCounter || !selectedContainer) {
       toast.warn("Please select both counter and container ⚠️");
-
       return;
     }
 
     try {
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login");
+        return;
+      }
+
       await axios.post(
-        `http://localhost:8080/api/pieces/transfer?pieceId=${showTransfer.id}&targetBoxId=${selectedContainer}`,
+        `http://localhost:8080/api/pieces/transfer?pieceId=${
+          showTransfer.id
+        }&boxId=${Number(selectedContainer)}`,
         null,
         {
-          headers: { Authorization: `Bearer ${getToken()}` },
+          headers: { Authorization: `Bearer ${token}` },
         }
       );
-      toast.success("Piece transferred successfully ");
-
+      toast.success("Piece transferred successfully");
       setShowTransfer(null);
+      setSelectedContainer("");
+      setSelectedCounter("");
+      setContainers([]);
       fetchPieces();
     } catch (err) {
-      console.error("Error transferring piece:", err);
-      toast.error("Failed to transfer piece ");
+      console.error("Error transferring piece:", err, err?.response?.data);
+      toast.error(err?.response?.data?.message || "Failed to transfer piece");
     }
   };
 
   const handleDelete = async (id) => {
     try {
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login");
+        return;
+      }
       await axios.delete(`http://localhost:8080/api/pieces/${id}`, {
         headers: {
-          Authorization: `Bearer ${getToken()}`,
+          Authorization: `Bearer ${token}`,
         },
       });
       setDeleteModal(null);
       fetchPieces();
-      toast.success("Piece deleted successfully ");
+      toast.success("Piece deleted successfully");
     } catch (err) {
-      console.error("Error deleting piece:", err);
-      toast.error("Failed to delete piece ");
+      console.error("Error deleting piece:", err, err?.response?.data);
+      toast.error("Failed to delete piece");
     }
   };
 
@@ -276,12 +486,18 @@ export default function GetAllPieces() {
 
   async function fetchCounters() {
     try {
-      const res = await axios.get("http://localhost:8080/api/counters", {
-        headers: { Authorization: `Bearer ${getToken()}` },
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login");
+        return;
+      }
+      const res = await axios.get("http://localhost:8080/api/counter/getAll", {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      setCounters(res.data);
+      setCounters(res.data || []);
     } catch (err) {
-      console.error("Error fetching counters:", err);
+      console.error("Error fetching counters:", err, err?.response?.data);
+      toast.error("Failed to fetch counters");
     }
   }
 
@@ -299,7 +515,7 @@ export default function GetAllPieces() {
             style={{
               display: "flex",
               alignItems: "center",
-              border: "1px solid #d1d5db", // light gray border
+              border: "1px solid #d1d5db",
               borderRadius: "6px",
               padding: "6px 8px",
               backgroundColor: "#fff",
@@ -338,12 +554,12 @@ export default function GetAllPieces() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Counter Name</th>
-              <th>Box</th>
+              <th>Box ID</th>
               <th>Barcode</th>
               <th>Type</th>
-              <th>Weight (g)</th>
-              <th>VWeight (g)</th>
+              <th>Purity</th>
+              <th>Net Weight (g)</th>
+              <th>Variable Weight (g)</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -368,21 +584,25 @@ export default function GetAllPieces() {
             ) : (
               filteredPieces.map((piece) => (
                 <tr key={piece.id}>
-                  <td>{piece.counterName}</td>
-                  <td>Box #{piece.boxIdentity}</td>
-                  <td className="font-semibold">{piece.barcode}</td>
-                  <td>{piece.type}</td>
-                  <td>{piece.weight}g</td>
-                  <td>{piece.vweight}g</td>
+                  <td>{piece.boxId ? `Box #${piece.boxId}` : "-"}</td>
+                  <td className="font-semibold">{piece.barcode || "-"}</td>
+                  <td>{piece.type || "-"}</td>
+                  <td>{piece.purity || "-"}</td>
+                  <td>
+                    {piece.netWeight ?? "-"}
+                    {piece.netWeight ? "g" : ""}
+                  </td>
+                  <td>
+                    {piece.variableWeight ?? "-"}
+                    {piece.variableWeight ? "g" : ""}
+                  </td>
                   <td>
                     <span
                       className={`status-badge ${
-                        piece.status === "AVAILABLE"
-                          ? "status-available"
-                          : "status-sold"
+                        piece.sold ? "status-sold" : "status-available"
                       }`}
                     >
-                      {piece.status}
+                      {piece.sold ? "SOLD" : "AVAILABLE"}
                     </span>
                   </td>
                   <td>
@@ -393,7 +613,6 @@ export default function GetAllPieces() {
                       >
                         <ShoppingCart size={14} /> Sell
                       </button>
-
                       <button
                         className="btn btn-small btn-primary"
                         onClick={() => handleTransfer(piece)}
@@ -421,7 +640,7 @@ export default function GetAllPieces() {
         </table>
       </div>
 
-      {/* ✅ Create Modal */}
+      {/* Create Modal */}
       {showCreate && (
         <Modal title="Add New Piece" onClose={() => setShowCreate(false)}>
           <form onSubmit={handleAddSubmit} className="piece-form">
@@ -429,7 +648,7 @@ export default function GetAllPieces() {
               <label>Date</label>
               <LocalizationProvider dateAdapter={AdapterDayjs}>
                 <DatePicker
-                  value={dayjs(formData.date)} // keep format yyyy-MM-dd
+                  value={dayjs(formData.date)}
                   onChange={(newValue) => {
                     setFormData((prev) => ({
                       ...prev,
@@ -454,18 +673,43 @@ export default function GetAllPieces() {
                 id="barcode"
                 value={formData.barcode}
                 onChange={handleChange}
-                required
+                required={false}
+                placeholder="e.g. JWL-4456 (optional)"
               />
             </div>
+
             <div className="form-group">
               <label>Type</label>
-              <input
-                type="text"
+              <select
                 id="type"
                 value={formData.type}
                 onChange={handleChange}
                 required
-              />
+              >
+                <option value="">Select Type</option>
+                {typeOptions.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Purity</label>
+              <select
+                id="purity"
+                value={formData.purity}
+                onChange={handleChange}
+                required={false}
+              >
+                <option value="">Select Purity</option>
+                {purityOptions.map((p) => (
+                  <option key={p.id} value={p.purity}>
+                    {p.purity}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Counter + Box selection */}
@@ -475,9 +719,8 @@ export default function GetAllPieces() {
                 <select
                   value={selectedCounter}
                   onChange={(e) => handleCounterChange(e.target.value)}
-                  required
                 >
-                  <option value="">Select Counter</option>
+                  <option value="">Select Counter (optional)</option>
                   {counters.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -490,13 +733,13 @@ export default function GetAllPieces() {
                 <select
                   value={selectedContainer}
                   onChange={(e) => setSelectedContainer(e.target.value)}
-                  required
                   disabled={!containers.length}
+                  required
                 >
                   <option value="">Select Box</option>
                   {containers.map((b) => (
                     <option key={b.id} value={b.id}>
-                      Box #{b.identity}
+                      {b.identity ? `${b.identity}` : `Box #${b.id}`}
                     </option>
                   ))}
                 </select>
@@ -505,28 +748,31 @@ export default function GetAllPieces() {
 
             <div className="form-row">
               <div className="form-group">
-                <label>Weight (g)</label>
+                <label>Weight (Net, g)</label>
                 <input
                   type="number"
-                  id="weight"
+                  id="netWeight"
                   step="0.01"
-                  value={formData.weight}
+                  value={formData.netWeight}
                   onChange={handleChange}
                   required
+                  min="0"
                 />
               </div>
               <div className="form-group">
                 <label>VWeight (g)</label>
                 <input
                   type="number"
-                  id="vweight"
+                  id="variableWeight"
                   step="0.01"
-                  value={formData.vweight}
+                  value={formData.variableWeight}
                   onChange={handleChange}
                   required
+                  min="0"
                 />
               </div>
             </div>
+
             <div className="form-actions">
               <button
                 type="button"
@@ -543,7 +789,7 @@ export default function GetAllPieces() {
         </Modal>
       )}
 
-      {/* ✅ Edit Modal */}
+      {/* Edit Modal */}
       {showEdit && (
         <Modal title="Edit Piece" onClose={() => setShowEdit(null)}>
           <form onSubmit={handleEditSubmit} className="piece-form">
@@ -551,17 +797,21 @@ export default function GetAllPieces() {
               <label>Date</label>
               <LocalizationProvider dateAdapter={AdapterDayjs}>
                 <DatePicker
-                  value={dayjs(showEdit.date)}
+                  value={dayjs(
+                    showEdit.createdAt || showEdit.date || new Date()
+                  )}
                   onChange={(newValue) =>
-                    setShowEdit({
-                      ...showEdit,
-                      date: newValue ? newValue.format("YYYY-MM-DD") : "",
-                    })
+                    setShowEdit((prev) => ({
+                      ...prev,
+                      createdAt: newValue
+                        ? newValue.format("YYYY-MM-DD")
+                        : prev.createdAt,
+                    }))
                   }
                   slotProps={{
                     textField: {
                       size: "small",
-                      required: true,
+                      required: false,
                       fullWidth: true,
                     },
                   }}
@@ -573,33 +823,57 @@ export default function GetAllPieces() {
               <label>Barcode</label>
               <input
                 type="text"
-                value={showEdit.barcode}
+                value={showEdit.barcode || ""}
                 onChange={(e) =>
                   setShowEdit({ ...showEdit, barcode: e.target.value })
                 }
-                required
               />
             </div>
+
             <div className="form-group">
               <label>Type</label>
-              <input
-                type="text"
-                value={showEdit.type}
+              <select
+                value={showEdit.type || ""}
                 onChange={(e) =>
                   setShowEdit({ ...showEdit, type: e.target.value })
                 }
                 required
-              />
+              >
+                <option value="">Select Type</option>
+                {typeOptions.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            <div className="form-group">
+              <label>Purity</label>
+              <select
+                value={showEdit.purity || ""}
+                onChange={(e) =>
+                  setShowEdit({ ...showEdit, purity: e.target.value })
+                }
+              >
+                <option value="">Select Purity</option>
+                {purityOptions.map((p) => (
+                  <option key={p.id} value={p.purity}>
+                    {p.purity}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="form-row">
               <div className="form-group">
-                <label>Weight (g)</label>
+                <label>Weight (Net, g)</label>
                 <input
                   type="number"
                   step="0.01"
-                  value={showEdit.weight}
+                  value={showEdit.netWeight ?? ""}
                   onChange={(e) =>
-                    setShowEdit({ ...showEdit, weight: e.target.value })
+                    setShowEdit({ ...showEdit, netWeight: e.target.value })
                   }
                   required
                 />
@@ -609,9 +883,12 @@ export default function GetAllPieces() {
                 <input
                   type="number"
                   step="0.01"
-                  value={showEdit.vweight}
+                  value={showEdit.variableWeight ?? ""}
                   onChange={(e) =>
-                    setShowEdit({ ...showEdit, vweight: e.target.value })
+                    setShowEdit({
+                      ...showEdit,
+                      variableWeight: e.target.value,
+                    })
                   }
                   required
                 />
@@ -633,7 +910,7 @@ export default function GetAllPieces() {
         </Modal>
       )}
 
-      {/* ✅ Transfer Modal */}
+      {/* Transfer Modal */}
       {showTransfer && (
         <Modal title="Transfer Piece" onClose={() => setShowTransfer(null)}>
           <form onSubmit={handleTransferSubmit} className="piece-form">
@@ -647,7 +924,7 @@ export default function GetAllPieces() {
                   color: "#64748b",
                 }}
               >
-                {`Counter ${showTransfer.counterName} → Box #${showTransfer.boxIdentity}`}
+                {`Box #${showTransfer.boxId || "-"}`}
               </div>
             </div>
 
@@ -679,7 +956,7 @@ export default function GetAllPieces() {
                   <option value="">Select Container</option>
                   {containers.map((b) => (
                     <option key={b.id} value={b.id}>
-                      Box #{b.identity}
+                      {b.identity ? `${b.identity}` : `Box #${b.id}`}
                     </option>
                   ))}
                 </select>
@@ -702,28 +979,37 @@ export default function GetAllPieces() {
         </Modal>
       )}
 
-      {/* ✅ Sold Out Modal */}
+      {/* Sold Out Modal */}
       {showSoldOut && (
         <Modal title="Mark as Sold Out" onClose={() => setShowSoldOut(null)}>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
               try {
+                const token = getToken();
+                if (!token) {
+                  toast.error("Missing auth token — please login");
+                  return;
+                }
                 await axios.post(
-                  `http://localhost:8080/api/pieces/sell?pieceId=${showSoldOut.id}`,
-                  {},
+                  `http://localhost:8080/api/pieces/sold?id=${showSoldOut.id}`,
+                  null,
                   {
-                    headers: {
-                      Authorization: `Bearer ${getToken()}`,
-                    },
+                    headers: { Authorization: `Bearer ${token}` },
                   }
                 );
                 setShowSoldOut(null);
                 fetchPieces();
-                alert(`Piece "${showSoldOut.barcode}" marked as sold out ✅`);
+                toast.success(
+                  `Piece "${
+                    showSoldOut.barcode || showSoldOut.id
+                  }" marked as sold`
+                );
               } catch (err) {
-                console.error("Error selling piece:", err);
-                alert("Failed to mark as sold out ❌");
+                console.error("Error selling piece:", err, err?.response?.data);
+                toast.error(
+                  err?.response?.data?.message || "Failed to mark as sold"
+                );
               }
             }}
             className="piece-form"
@@ -731,7 +1017,8 @@ export default function GetAllPieces() {
             <div className="form-group">
               <p>
                 Are you sure you want to mark piece{" "}
-                <strong>{showSoldOut.barcode}</strong> as Sold Out?
+                <strong>{showSoldOut.barcode || showSoldOut.id}</strong> as
+                Sold?
               </p>
             </div>
             <div className="form-actions">
@@ -750,12 +1037,12 @@ export default function GetAllPieces() {
         </Modal>
       )}
 
-      {/* ✅ Delete Modal */}
+      {/* Delete Modal */}
       {deleteModal && (
         <Modal title="Delete Piece" onClose={() => setDeleteModal(null)}>
           <p>
             Are you sure you want to delete piece{" "}
-            <strong>{deleteModal.barcode}</strong>?
+            <strong>{deleteModal.barcode || deleteModal.id}</strong>?
           </p>
           <div className="form-actions">
             <button
@@ -773,6 +1060,7 @@ export default function GetAllPieces() {
           </div>
         </Modal>
       )}
+
       <ToastContainer position="top-right" autoClose={3000} />
     </div>
   );

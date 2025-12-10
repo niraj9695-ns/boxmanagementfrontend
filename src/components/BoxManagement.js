@@ -8,6 +8,7 @@ import {
   Edit2,
   Trash2,
   ArrowLeft,
+  X,
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
@@ -15,7 +16,6 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
-import { X } from "lucide-react";
 
 import PieceManagementBox from "./PieceManagementBox";
 
@@ -23,9 +23,12 @@ import PieceManagementBox from "./PieceManagementBox";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-/* 🔹 Utility: Get JWT token */
+/* 🔹 Utility: Get JWT token (tolerant: strips 'Bearer ' if present) */
 function getToken() {
-  return localStorage.getItem("token");
+  let t = localStorage.getItem("token");
+  if (!t) return null;
+  if (t.startsWith("Bearer ")) return t.slice(7);
+  return t;
 }
 
 /* 🔹 Modal Component */
@@ -49,27 +52,36 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-/* 🔹 API Wrapper */
+/* 🔹 API Wrapper (updated endpoints) */
 class BoxClass {
   static async getAll() {
-    const res = await axios.get("http://localhost:8080/api/boxes", {
+    const res = await axios.get("http://localhost:8080/api/box/getAll", {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
     return res.data;
   }
 
   static async create(data) {
-    const res = await axios.post("http://localhost:8080/api/boxes", data, {
+    const res = await axios.post("http://localhost:8080/api/box/add", data, {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getToken()}`,
       },
+    });
+    return res.data;
+  }
+
+  static async getById(id) {
+    const res = await axios.get("http://localhost:8080/api/box/getById", {
+      params: { id: id },
+      headers: { Authorization: `Bearer ${getToken()}` },
     });
     return res.data;
   }
 
   static async update(id, data) {
-    const res = await axios.put(`http://localhost:8080/api/boxes/${id}`, data, {
+    const res = await axios.put("http://localhost:8080/api/box/update", data, {
+      params: { Id: id },
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getToken()}`,
@@ -78,13 +90,33 @@ class BoxClass {
     return res.data;
   }
 
+  // delete endpoint not included in your list — assuming pattern /api/box/delete?Id=...
   static async delete(id) {
-    await axios.delete(`http://localhost:8080/api/boxes/${id}`, {
+    const res = await axios.delete("http://localhost:8080/api/box/delete", {
+      params: { Id: id },
       headers: { Authorization: `Bearer ${getToken()}` },
     });
-    return true;
+    return res.data;
   }
 }
+
+/* 🔹 Counter API helpers (use provided endpoints) */
+const CounterAPI = {
+  async getAll() {
+    const res = await axios.get("http://localhost:8080/api/counter/getAll", {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    return res.data;
+  },
+
+  async getById(id) {
+    const res = await axios.get("http://localhost:8080/api/counter/getById", {
+      params: { Id: id },
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    return res.data;
+  },
+};
 
 const BoxesTab = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -98,7 +130,7 @@ const BoxesTab = () => {
   const [showEdit, setShowEdit] = useState(null);
   const [showDelete, setShowDelete] = useState(null);
 
-  /* 🔹 Fetch Boxes */
+  /* 🔹 Fetch Boxes + Counters and merge counterName into boxes */
   useEffect(() => {
     refreshBoxes();
   }, []);
@@ -106,12 +138,36 @@ const BoxesTab = () => {
   const refreshBoxes = async () => {
     try {
       setLoading(true);
-      const data = await BoxClass.getAll();
-      const filtered = data.filter((item) => item.type === "BOX");
+
+      // fetch boxes and counters in parallel
+      const [boxesData, countersData] = await Promise.all([
+        BoxClass.getAll(),
+        CounterAPI.getAll(),
+      ]);
+
+      const countersMap = {};
+      if (Array.isArray(countersData)) {
+        countersData.forEach((c) => {
+          countersMap[c.id] = c.name || `Counter ${c.id}`;
+        });
+      }
+
+      const allBoxes = Array.isArray(boxesData) ? boxesData : [];
+
+      // Filter to only BOX type for BoxesTab and enrich with counterName
+      const filtered = allBoxes
+        .filter((item) => (item.type || "").toUpperCase() === "BOX")
+        .map((b) => ({
+          ...b,
+          counterName: b.counterId
+            ? countersMap[b.counterId] ?? `Counter ${b.counterId}`
+            : "",
+        }));
+
       setBoxes(filtered);
     } catch (err) {
-      console.error("Error fetching boxes:", err);
-      toast.error("Failed to fetch boxes");
+      console.error("Error fetching boxes or counters:", err);
+      toast.error("Failed to fetch boxes or counters");
     } finally {
       setLoading(false);
     }
@@ -130,11 +186,10 @@ const BoxesTab = () => {
   /* 🔹 Filtered boxes */
   const filteredBoxes = boxes.filter(
     (box) =>
-      box.identity?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      box.counterName?.toLowerCase().includes(searchQuery.toLowerCase())
+      (box.identity || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (box.counterName || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  /* 🔹 Conditional Rendering */
   /* 🔹 Conditional Rendering */
   if (view === "pieces") {
     return (
@@ -194,14 +249,24 @@ const BoxesTab = () => {
           </div>
         </div>
 
-        <button
-          id="addBoxBtn"
-          className="btn btn-success flex items-center gap-2"
-          onClick={() => setShowCreate(true)}
-        >
-          <Plus size={18} />
-          Add New Box
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            id="addBoxBtn"
+            className="btn btn-success flex items-center gap-2"
+            onClick={() => setShowCreate(true)}
+          >
+            <Plus size={18} />
+            Add New Box
+          </button>
+
+          <button
+            className="btn btn-secondary"
+            onClick={() => refreshBoxes()}
+            title="Refresh"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Boxes List */}
@@ -219,12 +284,16 @@ const BoxesTab = () => {
                 <div>
                   <h3 className="box-title">Box #{box.identity}</h3>
                   <div className="box-meta flex items-center gap-4 text-sm text-gray-600">
-                    <span className="box-type-badge">BOX</span>
+                    <span className="box-type-badge">{box.type}</span>
                     <div className="box-pieces flex items-center gap-1">
                       <Gem size={14} />
-                      <span>{box.totalPieces || 0} pieces</span>
+                      <span>
+                        {box.totalPiece ?? box.totalPieces ?? 0} pieces
+                      </span>
                     </div>
-                    <span className="counter-name">{box.counterName}</span>
+                    <span className="counter-name">
+                      {box.counterName ?? `Counter ${box.counterId ?? "-"}`}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -234,25 +303,25 @@ const BoxesTab = () => {
                 <div className="weight-item">
                   <div className="weight-column-label">Fixed Weight</div>
                   <div className="weight-column-value">
-                    {box.fixedWeight || 0}g
+                    {box.fixedWeight ?? 0}g
                   </div>
                 </div>
                 <div className="weight-item">
                   <div className="weight-column-label">Net Weight</div>
                   <div className="weight-column-value">
-                    {box.netWeight || 0}g
+                    {box.netWeight ?? 0}g
                   </div>
                 </div>
                 <div className="weight-item">
                   <div className="weight-column-label">Variable Weight</div>
                   <div className="weight-column-value">
-                    {box.variableWeight || 0}g
+                    {box.variableWeight ?? 0}g
                   </div>
                 </div>
                 <div className="weight-item">
                   <div className="weight-column-label">Gross Weight</div>
                   <div className="weight-column-value">
-                    {box.grossWeight || 0}g
+                    {box.grossWeight ?? 0}g
                   </div>
                 </div>
               </div>
@@ -260,7 +329,11 @@ const BoxesTab = () => {
               {/* Box Actions */}
               <div className="box-actions flex items-center justify-between mt-3">
                 <div className="box-total font-semibold">
-                  Total: {box.totalAll?.toFixed(3) || "0.000"}g
+                  Total:{" "}
+                  {(box.totalAll ?? 0).toFixed
+                    ? (box.totalAll ?? 0).toFixed(3)
+                    : "0.000"}
+                  g
                 </div>
                 <div className="action-buttons flex gap-2">
                   <button
@@ -271,16 +344,35 @@ const BoxesTab = () => {
                   </button>
                   <button
                     className="btn btn-warning btn-small flex items-center gap-1"
-                    onClick={() => setShowEdit(box)}
+                    onClick={async () => {
+                      // fetch latest from server before editing to ensure fresh data
+                      try {
+                        const fresh = await BoxClass.getById(box.id);
+                        // enrich fresh with counterName from counters API (fallback)
+                        try {
+                          const counter = await CounterAPI.getById(
+                            fresh.counterId
+                          );
+                          fresh.counterName =
+                            counter?.name ?? `Counter ${fresh.counterId}`;
+                        } catch {
+                          // ignore counter fetch failure; UI will fallback
+                        }
+                        setShowEdit(fresh);
+                      } catch (err) {
+                        console.error("Failed to fetch box details:", err);
+                        toast.error("Failed to fetch box details for edit");
+                      }
+                    }}
                   >
                     <Edit2 size={16} /> Edit
                   </button>
-                  {/* <button
+                  <button
                     className="btn btn-danger btn-small flex items-center gap-1"
                     onClick={() => setShowDelete(box)}
                   >
                     <Trash2 size={16} /> Delete
-                  </button> */}
+                  </button>
                 </div>
               </div>
             </div>
@@ -327,15 +419,17 @@ const BoxesTab = () => {
                 Cancel
               </button>
               <button
-                onClick={() =>
-                  BoxClass.delete(showDelete.id)
-                    .then(() => {
-                      toast.success("Box deleted successfully");
-                      refreshBoxes();
-                      setShowDelete(null);
-                    })
-                    .catch(() => toast.error("Failed to delete box"))
-                }
+                onClick={async () => {
+                  try {
+                    await BoxClass.delete(showDelete.id);
+                    toast.success("Box deleted successfully");
+                    refreshBoxes();
+                    setShowDelete(null);
+                  } catch (err) {
+                    console.error("Delete failed:", err);
+                    toast.error("Failed to delete box");
+                  }
+                }}
                 className="btn btn-danger"
               >
                 Delete
@@ -356,14 +450,17 @@ function CreateBoxForm({ onClose, onSaved }) {
   const [counters, setCounters] = useState([]);
   const [counterId, setCounterId] = useState("");
 
-  /* Fetch counters when modal opens */
+  /* Fetch counters when modal opens (uses provided GET /api/counter/getAll) */
   useEffect(() => {
     async function fetchCounters() {
       try {
-        const res = await axios.get("http://localhost:8080/api/counters", {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        setCounters(res.data);
+        const res = await axios.get(
+          "http://localhost:8080/api/counter/getAll",
+          {
+            headers: { Authorization: `Bearer ${getToken()}` },
+          }
+        );
+        setCounters(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
         console.error("Error fetching counters:", err);
         toast.error("Failed to fetch counters");
@@ -379,13 +476,15 @@ function CreateBoxForm({ onClose, onSaved }) {
       return;
     }
     try {
-      await BoxClass.create({
+      const payload = {
+        counterId: parseInt(counterId),
         type: "BOX",
         identity,
-        counterId: parseInt(counterId),
+        fixedWeight: parseFloat(fixedWeight),
+        // date included if backend accepts it
         date,
-        fixedWeight,
-      });
+      };
+      await BoxClass.create(payload); // POST /api/box/add
       toast.success("Box created successfully");
       onSaved();
       onClose();
@@ -425,7 +524,7 @@ function CreateBoxForm({ onClose, onSaved }) {
         <label>Date</label>
         <LocalizationProvider dateAdapter={AdapterDayjs}>
           <DatePicker
-            format="YYYY-MM-DD" // 🔹 keep backend format
+            format="YYYY-MM-DD" // keep backend format
             value={dayjs(date)} // convert stored string → dayjs
             onChange={(newValue) => {
               if (newValue) setDate(newValue.format("YYYY-MM-DD")); // store as string
@@ -459,18 +558,49 @@ function CreateBoxForm({ onClose, onSaved }) {
 
 /* 🔹 Edit Box Form */
 function EditBoxForm({ box, onClose, onSaved }) {
-  const [identity, setIdentity] = useState(box.identity);
-  const [date, setDate] = useState(box.date.split("T")[0]);
-  const [fixedWeight, setFixedWeight] = useState(box.fixedWeight);
+  const [identity, setIdentity] = useState(box.identity || "");
+  const [date, setDate] = useState(
+    box.createdAt
+      ? box.createdAt.split("T")[0]
+      : new Date().toISOString().split("T")[0]
+  );
+  const [fixedWeight, setFixedWeight] = useState(box.fixedWeight ?? 0);
+  const [type, setType] = useState(box.type ?? "BOX");
+  const [counterName, setCounterName] = useState(box.counterName ?? "");
+
+  // If counterName not provided on box, fetch via counter/getById
+  useEffect(() => {
+    async function ensureCounterName() {
+      if (!counterName && box.counterId) {
+        try {
+          const c = await axios.get(
+            "http://localhost:8080/api/counter/getById",
+            {
+              params: { Id: box.counterId },
+              headers: { Authorization: `Bearer ${getToken()}` },
+            }
+          );
+          setCounterName(c.data?.name ?? `Counter ${box.counterId}`);
+        } catch {
+          // ignore - we'll fallback to id
+          setCounterName(`Counter ${box.counterId}`);
+        }
+      }
+    }
+    ensureCounterName();
+  }, [box.counterId, counterName]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await BoxClass.update(box.id, {
+      const payload = {
+        type,
         identity,
+        fixedWeight: parseFloat(fixedWeight),
+        // include date if backend accepts it
         date,
-        fixedWeight,
-      });
+      };
+      await BoxClass.update(box.id, payload); // PUT /api/box/update?Id=...
       toast.success("Box updated successfully");
       onSaved();
       onClose();
@@ -491,6 +621,20 @@ function EditBoxForm({ box, onClose, onSaved }) {
           required
         />
       </div>
+
+      <div className="form-group">
+        <label>Counter</label>
+        <input type="text" value={counterName} readOnly />
+      </div>
+
+      <div className="form-group">
+        <label>Type</label>
+        <select value={type} onChange={(e) => setType(e.target.value)} required>
+          <option value="BOX">BOX</option>
+          <option value="TRAY">TRAY</option>
+        </select>
+      </div>
+
       <div className="form-group">
         <label>Date</label>
         <LocalizationProvider dateAdapter={AdapterDayjs}>

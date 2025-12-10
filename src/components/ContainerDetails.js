@@ -1,3 +1,4 @@
+// ContainerDetails.js
 import React, { useEffect, useState } from "react";
 import "../css/styles.css";
 import "../css/components.css";
@@ -12,7 +13,7 @@ import { X } from "lucide-react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-/* 🔹 Modal Component */
+/* ===== Modal Component ===== */
 function Modal({ title, children, onClose }) {
   return (
     <div className="modal-overlay">
@@ -33,6 +34,46 @@ function Modal({ title, children, onClose }) {
   );
 }
 
+/* ===== Token resolver (mirrors CountersTab) ===== */
+const TOKEN_KEYS = [
+  "token",
+  "authToken",
+  "access_token",
+  "jwt",
+  "Authorization",
+  "bearer_token",
+];
+
+function resolveTokenFromStorage() {
+  // try localStorage keys first
+  for (const k of TOKEN_KEYS) {
+    let v = localStorage.getItem(k);
+    if (!v) v = sessionStorage.getItem(k);
+    if (v) return v.startsWith("Bearer ") ? v.slice(7) : v;
+  }
+  // try user object
+  try {
+    const raw = localStorage.getItem("user") || sessionStorage.getItem("user");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.token) return parsed.token;
+      if (parsed?.accessToken) return parsed.accessToken;
+      if (parsed?.authToken) return parsed.authToken;
+    }
+  } catch (err) {
+    console.debug("[ContainerDetails] user parse error", err);
+  }
+  // fallback to 'token' key
+  return localStorage.getItem("token") || null;
+}
+
+function maskToken(t) {
+  if (!t) return null;
+  if (t.length <= 10) return "***";
+  return `****${t.slice(-8)}`;
+}
+
+/* ===== Main component ===== */
 function ContainerDetails({ counter, onBack, onManage }) {
   const [containers, setContainers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,14 +83,49 @@ function ContainerDetails({ counter, onBack, onManage }) {
   const [showEdit, setShowEdit] = useState(null);
   const [showDelete, setShowDelete] = useState(null);
 
-  // Fetch containers when counter changes
   useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+
+    // Resolve token: prefer localStorage.token explicitly
+    const directToken = localStorage.getItem("token");
+    const token = directToken || resolveTokenFromStorage();
+    console.debug(
+      "[ContainerDetails] resolved token for fetch (masked):",
+      maskToken(token),
+      directToken ? "(from localStorage.token)" : "(from resolver)"
+    );
+
     if (counter?.id) {
-      ContainerClass.getByCounterId(counter.id).then((data) => {
-        setContainers(data);
-        setLoading(false);
-      });
+      // make sure ContainerClass uses the same override token
+      ContainerClass.setOverrideToken(token);
+
+      ContainerClass.getByCounterId(counter.id)
+        .then((data) => {
+          if (!mounted) return;
+          setContainers(Array.isArray(data) ? data : []);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch boxes:", err);
+          if (mounted) {
+            setContainers([]);
+            toast.error(
+              "Failed to load containers — check console/network (403 = forbidden)."
+            );
+          }
+        })
+        .finally(() => {
+          if (mounted) setLoading(false);
+        });
+    } else {
+      // no counter selected
+      setContainers([]);
+      setLoading(false);
     }
+
+    return () => {
+      mounted = false;
+    };
   }, [counter]);
 
   if (!counter) return <p>No counter selected.</p>;
@@ -115,18 +191,21 @@ function ContainerDetails({ counter, onBack, onManage }) {
                   <td>
                     <span className="container-type">{c.type}</span>
                   </td>
-                  <td>{c.fixedWeight}g</td>
+                  <td>{c.fixedWeight ?? 0}g</td>
                   <td>{c.netWeight ?? 0}g</td>
                   <td>{c.variableWeight ?? 0}g</td>
-                  <td>{c.grossWeight ?? c.fixedWeight}g</td>
-                  <td>{c.totalPieces ?? 0}</td>
-
-                  <td>{new Date(c.date).toLocaleDateString()}</td>
+                  <td>{c.grossWeight ?? c.fixedWeight ?? 0}g</td>
+                  <td>{c.totalPiece ?? 0}</td>
+                  <td>
+                    {new Date(
+                      c.createdAt ?? c.date ?? Date.now()
+                    ).toLocaleDateString()}
+                  </td>
                   <td>
                     <div className="action-buttons flex gap-2">
                       <button
                         className="btn btn-primary btn-small flex items-center gap-1"
-                        onClick={() => onManage(c)} // 🔹 tell A to go to C
+                        onClick={() => onManage(c)}
                       >
                         <Gem size={16} />
                         Manage
@@ -138,13 +217,13 @@ function ContainerDetails({ counter, onBack, onManage }) {
                         <Edit2 size={16} />
                         Edit
                       </button>
-                      {/* <button
+                      <button
                         className="btn btn-danger btn-small flex items-center gap-1"
                         onClick={() => setShowDelete(c)}
                       >
                         <Trash2 size={16} />
                         Delete
-                      </button> */}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -164,7 +243,9 @@ function ContainerDetails({ counter, onBack, onManage }) {
             counterId={counter.id}
             onClose={() => setShowCreate(false)}
             onSaved={() =>
-              ContainerClass.getByCounterId(counter.id).then(setContainers)
+              ContainerClass.getByCounterId(counter.id).then((d) =>
+                setContainers(Array.isArray(d) ? d : [])
+              )
             }
           />
         </Modal>
@@ -177,7 +258,9 @@ function ContainerDetails({ counter, onBack, onManage }) {
             container={showEdit}
             onClose={() => setShowEdit(null)}
             onSaved={() =>
-              ContainerClass.getByCounterId(counter.id).then(setContainers)
+              ContainerClass.getByCounterId(counter.id).then((d) =>
+                setContainers(Array.isArray(d) ? d : [])
+              )
             }
           />
         </Modal>
@@ -203,12 +286,17 @@ function ContainerDetails({ counter, onBack, onManage }) {
               </button>
               <button
                 onClick={() =>
-                  ContainerClass.delete(showDelete.id).then(() => {
-                    ContainerClass.getByCounterId(counter.id).then(
-                      setContainers
-                    );
-                    setShowDelete(null);
-                  })
+                  ContainerClass.delete(showDelete.id)
+                    .then(() => ContainerClass.getByCounterId(counter.id))
+                    .then((d) => {
+                      setContainers(Array.isArray(d) ? d : []);
+                      setShowDelete(null);
+                      toast.success("Container deleted");
+                    })
+                    .catch((err) => {
+                      console.error("Delete failed", err);
+                      toast.error("Failed to delete container");
+                    })
                 }
                 className="btn btn-danger"
               >
@@ -218,11 +306,13 @@ function ContainerDetails({ counter, onBack, onManage }) {
           </div>
         </Modal>
       )}
+
+      <ToastContainer position="bottom-right" autoClose={2500} />
     </div>
   );
 }
 
-/* 🔹 Create Container Form */
+/* ===== CreateContainerForm ===== */
 function CreateContainerForm({ counterId, onClose, onSaved }) {
   const [type, setType] = useState("BOX");
   const [identity, setIdentity] = useState("");
@@ -231,15 +321,20 @@ function CreateContainerForm({ counterId, onClose, onSaved }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    await ContainerClass.create({
-      type,
-      identity,
-      counterId,
-      date,
-      fixedWeight,
-    });
-    onSaved();
-    onClose();
+    try {
+      await ContainerClass.create({
+        counterId,
+        type,
+        identity,
+        fixedWeight: parseFloat(fixedWeight) || 0,
+      });
+      toast.success("Container created");
+      onSaved();
+      onClose();
+    } catch (err) {
+      console.error("Create error", err);
+      toast.error("Failed to create container");
+    }
   };
 
   return (
@@ -276,6 +371,7 @@ function CreateContainerForm({ counterId, onClose, onSaved }) {
             }}
           />
         </LocalizationProvider>
+        <small className="muted">Server will set the official createdAt.</small>
       </div>
       <div className="form-group">
         <label>Fixed Weight (g)</label>
@@ -283,7 +379,7 @@ function CreateContainerForm({ counterId, onClose, onSaved }) {
           type="number"
           step="0.01"
           value={fixedWeight}
-          onChange={(e) => setFixedWeight(parseFloat(e.target.value))}
+          onChange={(e) => setFixedWeight(e.target.value)}
           required
         />
       </div>
@@ -299,23 +395,30 @@ function CreateContainerForm({ counterId, onClose, onSaved }) {
   );
 }
 
-/* 🔹 Edit Container Form */
+/* ===== EditContainerForm ===== */
 function EditContainerForm({ container, onClose, onSaved }) {
   const [type, setType] = useState(container.type);
   const [identity, setIdentity] = useState(container.identity);
-  const [date, setDate] = useState(container.date.split("T")[0]);
-  const [fixedWeight, setFixedWeight] = useState(container.fixedWeight);
+  const [date, setDate] = useState(
+    (container.createdAt || container.date || "").split("T")[0]
+  );
+  const [fixedWeight, setFixedWeight] = useState(container.fixedWeight ?? 0);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    await ContainerClass.update(container.id, {
-      type,
-      identity,
-      date,
-      fixedWeight,
-    });
-    onSaved();
-    onClose();
+    try {
+      await ContainerClass.update(container.id, {
+        type,
+        identity,
+        fixedWeight: parseFloat(fixedWeight) || 0,
+      });
+      toast.success("Container updated");
+      onSaved();
+      onClose();
+    } catch (err) {
+      console.error("Update error", err);
+      toast.error("Failed to update container");
+    }
   };
 
   return (
@@ -352,6 +455,9 @@ function EditContainerForm({ container, onClose, onSaved }) {
             }}
           />
         </LocalizationProvider>
+        <small className="muted">
+          Date is for display only; server manages timestamps.
+        </small>
       </div>
       <div className="form-group">
         <label>Fixed Weight (g)</label>
@@ -359,7 +465,7 @@ function EditContainerForm({ container, onClose, onSaved }) {
           type="number"
           step="0.01"
           value={fixedWeight}
-          onChange={(e) => setFixedWeight(parseFloat(e.target.value))}
+          onChange={(e) => setFixedWeight(e.target.value)}
           required
         />
       </div>
@@ -375,68 +481,239 @@ function EditContainerForm({ container, onClose, onSaved }) {
   );
 }
 
-/* 🔹 Safe JSON parser */
+/* ===== safeJson helper ===== */
 async function safeJson(res) {
-  const text = await res.text();
+  const text = await res.text().catch(() => "");
+  if (!text) return null;
   try {
-    return text ? JSON.parse(text) : [];
-  } catch {
-    return [];
+    return JSON.parse(text);
+  } catch (err) {
+    console.warn("[safeJson] parse failed", err, text);
+    return null;
   }
 }
 
-/* 🔹 API Wrapper for Containers */
-function getToken() {
-  return localStorage.getItem("token");
-}
-
+/* ===== ContainerClass (uses correct endpoints and explicit localStorage token) ===== */
 class ContainerClass {
-  static async getAll() {
-    const res = await fetch("http://localhost:8080/api/boxes", {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    });
-    return safeJson(res);
+  static _overrideToken = null;
+
+  static setOverrideToken(t) {
+    this._overrideToken = t;
+  }
+
+  // Build auth header: prefer localStorage.token explicitly, then override token, then resolver
+  static getAuthHeader() {
+    // explicit localStorage token first
+    const direct = localStorage.getItem("token");
+    const token = direct || this._overrideToken || resolveTokenFromStorage();
+    if (!token) {
+      console.warn("[ContainerClass] No auth token available.");
+      return {};
+    }
+    return { Authorization: `Bearer ${token}` };
   }
 
   static async getByCounterId(counterId) {
-    const res = await fetch(
-      `http://localhost:8080/api/boxes/by-counter?counterId=${counterId}`,
-      {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      }
+    const url = `http://localhost:8080/api/box/getByCounterId?counterId=${encodeURIComponent(
+      counterId
+    )}`;
+    const headers = this.getAuthHeader();
+    console.debug(
+      "[ContainerClass] GET",
+      url,
+      "auth:",
+      maskToken(headers.Authorization?.replace(/^Bearer\s+/i, "") || "")
     );
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(`[ContainerClass] GET failed ${res.status}`, url, text);
+      throw new Error(`Failed to fetch boxes: ${res.status}`);
+    }
+    return safeJson(res);
+  }
+
+  static async getAll() {
+    const url = "http://localhost:8080/api/box/getAll";
+    const headers = this.getAuthHeader();
+    console.debug(
+      "[ContainerClass] GET",
+      url,
+      "auth:",
+      maskToken(headers.Authorization?.replace(/^Bearer\s+/i, "") || "")
+    );
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(`[ContainerClass] GET all failed ${res.status}`, url, text);
+      throw new Error(`Failed to fetch all boxes: ${res.status}`);
+    }
+    return safeJson(res);
+  }
+
+  static async getById(id) {
+    const url = `http://localhost:8080/api/box/getById?Id=${encodeURIComponent(
+      id
+    )}`;
+    const headers = this.getAuthHeader();
+    console.debug(
+      "[ContainerClass] GET",
+      url,
+      "auth:",
+      maskToken(headers.Authorization?.replace(/^Bearer\s+/i, "") || "")
+    );
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(
+        `[ContainerClass] GET by id failed ${res.status}`,
+        url,
+        text
+      );
+      throw new Error(`Failed to fetch box: ${res.status}`);
+    }
     return safeJson(res);
   }
 
   static async create(data) {
-    const res = await fetch("http://localhost:8080/api/boxes", {
+    const url = "http://localhost:8080/api/box/add";
+    const headers = {
+      "Content-Type": "application/json",
+      ...this.getAuthHeader(),
+    };
+    console.debug(
+      "[ContainerClass] POST",
+      url,
+      "payload:",
+      data,
+      "auth:",
+      maskToken(headers.Authorization?.replace(/^Bearer\s+/i, "") || "")
+    );
+    const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${getToken()}`,
-      },
-      body: JSON.stringify(data),
+      headers,
+      body: JSON.stringify({
+        counterId: data.counterId,
+        type: data.type,
+        identity: data.identity,
+        fixedWeight: data.fixedWeight,
+      }),
     });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(`[ContainerClass] POST failed ${res.status}`, url, text);
+      throw new Error(`Failed to create box: ${res.status}`);
+    }
     return safeJson(res);
   }
 
   static async update(id, data) {
-    const res = await fetch(`http://localhost:8080/api/boxes/${id}`, {
+    const url = `http://localhost:8080/api/box/update?id=${encodeURIComponent(
+      id
+    )}`;
+    const headers = {
+      "Content-Type": "application/json",
+      ...this.getAuthHeader(),
+    };
+    console.debug(
+      "[ContainerClass] PUT",
+      url,
+      "payload:",
+      data,
+      "auth:",
+      maskToken(headers.Authorization?.replace(/^Bearer\s+/i, "") || "")
+    );
+    const res = await fetch(url, {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${getToken()}`,
-      },
-      body: JSON.stringify(data),
+      headers,
+      body: JSON.stringify({
+        type: data.type,
+        identity: data.identity,
+        fixedWeight: data.fixedWeight,
+      }),
     });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(`[ContainerClass] PUT failed ${res.status}`, url, text);
+      throw new Error(`Failed to update box: ${res.status}`);
+    }
+    return safeJson(res);
+  }
+
+  static async transfer(boxId, counterId) {
+    const url = "http://localhost:8080/api/box/transfer";
+    const headers = {
+      "Content-Type": "application/json",
+      ...this.getAuthHeader(),
+    };
+    console.debug(
+      "[ContainerClass] POST",
+      url,
+      "payload:",
+      { boxId, counterId },
+      "auth:",
+      maskToken(headers.Authorization?.replace(/^Bearer\s+/i, "") || "")
+    );
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ boxId, counterId }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(
+        `[ContainerClass] transfer failed ${res.status}`,
+        url,
+        text
+      );
+      throw new Error(`Failed to transfer box: ${res.status}`);
+    }
+    return safeJson(res);
+  }
+
+  static async getPiecesByBoxId(boxId) {
+    const url = `http://localhost:8080/api/pieces/getByBoxId?boxId=${encodeURIComponent(
+      boxId
+    )}`;
+    const headers = this.getAuthHeader();
+    console.debug(
+      "[ContainerClass] GET",
+      url,
+      "auth:",
+      maskToken(headers.Authorization?.replace(/^Bearer\s+/i, "") || "")
+    );
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(
+        `[ContainerClass] getPieces failed ${res.status}`,
+        url,
+        text
+      );
+      throw new Error(`Failed to fetch pieces: ${res.status}`);
+    }
     return safeJson(res);
   }
 
   static async delete(id) {
-    const res = await fetch(`http://localhost:8080/api/boxes/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${getToken()}` },
-    });
+    const url = `http://localhost:8080/api/box/delete?Id=${encodeURIComponent(
+      id
+    )}`;
+    const headers = this.getAuthHeader();
+    console.debug(
+      "[ContainerClass] DELETE",
+      url,
+      "auth:",
+      maskToken(headers.Authorization?.replace(/^Bearer\s+/i, "") || "")
+    );
+    const res = await fetch(url, { method: "DELETE", headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(`[ContainerClass] DELETE failed ${res.status}`, url, text);
+      throw new Error(`Failed to delete box: ${res.status}`);
+    }
+    if (res.headers.get("content-type")?.includes("application/json"))
+      return safeJson(res);
     return res.ok;
   }
 }

@@ -1,4 +1,3 @@
-// PieceManagementBox.js
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import {
@@ -13,9 +12,12 @@ import {
   Move,
   Edit2,
   Trash2,
+  X,
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 /* 🔹 Utility: Get JWT token */
 function getToken() {
@@ -29,8 +31,12 @@ function Modal({ title, children, onClose }) {
       <div className="modal">
         <div className="modal-header">
           <h3>{title}</h3>
-          <button className="close-btn" onClick={onClose}>
-            ×
+          <button
+            className="close-btn"
+            onClick={onClose}
+            aria-label="Close modal"
+          >
+            <X size={18} strokeWidth={2} />
           </button>
         </div>
         <div className="modal-body">{children}</div>
@@ -39,10 +45,10 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-export default function PieceManagementBox({ container, boxId, onBack }) {
-  const [box, setBox] = useState(container || null);
+export default function PieceManagement({ container, boxId, onBack }) {
   const [pieces, setPieces] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [box, setBox] = useState(container || null);
 
   // Modal states
   const [showCreate, setShowCreate] = useState(false);
@@ -55,62 +61,74 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
   const [showSoldOut, setShowSoldOut] = useState(null); // piece object
   const [deleteModal, setDeleteModal] = useState(null);
 
+  // Lookup options for dropdowns
+  const [purityOptions, setPurityOptions] = useState([]);
+  const [typeOptions, setTypeOptions] = useState([]);
+
   // Form state for Add
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split("T")[0],
     barcode: "",
     type: "",
-    weight: "",
-    vweight: "",
+    purity: "",
+    netWeight: "",
+    variableWeight: "",
   });
 
-  const activeBoxId = box?.id || boxId;
+  // ✅ Safely compute activeBoxId even if container is undefined
+  const activeBoxId = container?.id || boxId || box?.id || null;
 
-  /* 🔹 Fetch box details if only boxId is passed */
-  useEffect(() => {
-    if (!box && boxId) {
-      axios
-        .get(`http://localhost:8080/api/boxes/${boxId}`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        })
-        .then((res) => setBox(res.data))
-        .catch((err) => console.error("Error fetching box details:", err));
-    }
-  }, [boxId, box]);
-
+  /* 🔹 Fetch box details (GET /api/box/getById?id=) */
   async function fetchBoxDetails() {
     if (!activeBoxId) return;
     try {
-      const res = await axios.get(
-        `http://localhost:8080/api/boxes/${activeBoxId}`,
-        {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        }
-      );
+      const res = await axios.get("http://localhost:8080/api/box/getById", {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: { id: activeBoxId },
+      });
       setBox(res.data);
     } catch (err) {
       console.error("Error fetching box details:", err);
     }
   }
 
-  /* 🔹 Fetch Pieces */
+  /* 🔹 Fetch Pieces (GET /api/pieces/getByBoxId?boxId=) */
   useEffect(() => {
-    if (!activeBoxId) return;
     fetchPieces();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBoxId]);
+  }, [activeBoxId]); // ✅ no direct container.id
 
   async function fetchPieces() {
-    if (!activeBoxId) return;
+    console.log("[PieceManagement] activeBoxId =", activeBoxId, {
+      container,
+      boxId,
+      box,
+    });
+
+    if (!activeBoxId) {
+      console.warn("[PieceManagement] No activeBoxId — not calling API");
+      return;
+    }
+
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:8080/api/pieces/by-box", {
-        headers: {
-          Authorization: `Bearer ${getToken()}`,
-        },
-        params: { boxId: activeBoxId },
-      });
-      setPieces(res.data);
+      const res = await axios.get(
+        "http://localhost:8080/api/pieces/getByBoxId",
+        {
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+          },
+          params: {
+            boxId: Number(activeBoxId), // 🔹 ensure it's a number
+          },
+        }
+      );
+      console.log(
+        "[PieceManagement] Response for boxId",
+        activeBoxId,
+        res.data
+      );
+      setPieces(res.data || []);
+      fetchBoxDetails();
     } catch (err) {
       console.error("Error fetching pieces:", err);
     } finally {
@@ -118,83 +136,117 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
     }
   }
 
+  /* 🔹 Fetch purity & type options once */
+  useEffect(() => {
+    const fetchLookups = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+        const [purityRes, typeRes] = await Promise.all([
+          axios.get("http://localhost:8080/purity/getAll", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          axios.get("http://localhost:8080/type/getAll", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+        setPurityOptions(purityRes.data || []);
+        setTypeOptions(typeRes.data || []);
+      } catch (err) {
+        console.error("Error fetching purity/type options:", err);
+        toast.error("Failed to load purity/type options");
+      }
+    };
+
+    fetchLookups();
+  }, []);
+
   /* 🔹 Handle form changes */
   const handleChange = (e) => {
     const { id, value } = e.target;
     setFormData((prev) => ({ ...prev, [id]: value }));
   };
 
-  /* 🔹 Add Piece Submit */
+  /* 🔹 Add Piece Submit (POST /api/pieces) */
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-    if (!box) {
-      alert("Box details not loaded yet!");
+    if (!activeBoxId) {
+      toast.error("Missing box id. Please reopen this box and try again.");
       return;
     }
+
     try {
       await axios.post(
         "http://localhost:8080/api/pieces",
         {
-          date: formData.date,
-          counterId: box.counterId,
-          boxId: box.id,
-          barcode: formData.barcode,
+          barcode: formData.barcode || null,
           type: formData.type,
-          weight: parseFloat(formData.weight),
-          vweight: parseFloat(formData.vweight),
+          purity: formData.purity || null,
+          netWeight: parseFloat(formData.netWeight || 0),
+          variableWeight: parseFloat(formData.variableWeight || 0),
+          boxId: activeBoxId,
         },
         {
-          headers: { Authorization: `Bearer ${getToken()}` },
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+          },
         }
       );
+      toast.success("Piece added successfully");
 
-      setShowCreate(false);
-      setFormData({
-        date: new Date().toISOString().split("T")[0],
+      // ✅ keep modal open, keep last selected type & purity
+      setFormData((prev) => ({
+        ...prev,
         barcode: "",
-        type: "",
-        weight: "",
-        vweight: "",
-      });
+        netWeight: "",
+        variableWeight: "",
+      }));
+
       fetchPieces();
       fetchBoxDetails();
     } catch (err) {
       console.error("Error adding piece:", err);
-      alert("Failed to add piece.");
+      toast.error("Failed to add piece");
     }
   };
 
-  /* 🔹 Edit Piece Submit */
+  /* 🔹 Edit Piece Submit (PUT /api/pieces?id=…) */
   const handleEditSubmit = async (e) => {
     e.preventDefault();
-    if (!box) return;
+    if (!showEdit) return;
+
     try {
       await axios.put(
-        `http://localhost:8080/api/pieces/${showEdit.id}`,
+        "http://localhost:8080/api/pieces",
         {
-          date: showEdit.date,
-          counterId: box.counterId,
-          boxId: box.id,
-          barcode: showEdit.barcode,
+          barcode: showEdit.barcode || null,
           type: showEdit.type,
-          weight: parseFloat(showEdit.weight),
-          vweight: parseFloat(showEdit.vweight),
+          purity: showEdit.purity || null,
+          netWeight: parseFloat(showEdit.netWeight || 0),
+          variableWeight: parseFloat(showEdit.variableWeight || 0),
+          boxId: activeBoxId,
         },
         {
-          headers: { Authorization: `Bearer ${getToken()}` },
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+          },
+          params: {
+            id: showEdit.id, // backend expects @RequestParam Long id
+          },
         }
       );
+      toast.success("Piece updated successfully");
 
       setShowEdit(null);
-      fetchBoxDetails();
       fetchPieces();
+      fetchBoxDetails();
     } catch (err) {
       console.error("Error updating piece:", err);
-      alert("Failed to update piece.");
+      toast.error("Failed to update piece");
     }
   };
 
-  // open transfer modal
+  /* 🔹 Open Transfer modal + fetch counters (GET /api/counter/getAll) */
   const handleTransfer = async (piece) => {
     setShowTransfer(piece);
     setSelectedCounter("");
@@ -202,16 +254,19 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
     setContainers([]);
 
     try {
-      const res = await axios.get("http://localhost:8080/api/counters", {
+      const res = await axios.get("http://localhost:8080/api/counter/getAll", {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      setCounters(res.data);
+      setCounters(res.data || []);
     } catch (err) {
       console.error("Error fetching counters:", err);
+      toast.error("Failed to load counters");
     }
   };
 
-  // fetch containers when counter changes
+  /* 🔹 When counter changes, fetch boxes for that counter
+     GET /api/box/getByCounterId?counterId=
+  */
   const handleCounterChange = async (counterId) => {
     setSelectedCounter(counterId);
     setSelectedContainer("");
@@ -222,60 +277,71 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
 
     try {
       const res = await axios.get(
-        "http://localhost:8080/api/boxes/by-counter",
+        "http://localhost:8080/api/box/getByCounterId",
         {
           headers: { Authorization: `Bearer ${getToken()}` },
           params: { counterId },
         }
       );
-      setContainers(res.data);
+      setContainers(res.data || []);
     } catch (err) {
       console.error("Error fetching containers:", err);
+      toast.error("Failed to load containers");
     }
   };
 
-  // submit transfer
+  /* 🔹 Submit Transfer (POST /api/pieces/transfer?pieceId=&boxId=) */
   const handleTransferSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCounter || !selectedContainer) {
-      alert("Please select both counter and container.");
+      toast.warning("Please select both counter and container.");
       return;
     }
 
     try {
-      await axios.post(
-        `http://localhost:8080/api/pieces/transfer?pieceId=${showTransfer.id}&targetBoxId=${selectedContainer}`,
-        null,
-        {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        }
-      );
+      await axios.post("http://localhost:8080/api/pieces/transfer", null, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: {
+          pieceId: showTransfer.id,
+          boxId: selectedContainer,
+        },
+      });
+      toast.success("Transferred successfully!");
 
       setShowTransfer(null);
-      fetchBoxDetails();
       fetchPieces();
+      fetchBoxDetails();
     } catch (err) {
       console.error("Error transferring piece:", err);
-      alert("Failed to transfer piece.");
+      toast.error("Failed to transfer piece.");
     }
   };
 
+  /* 🔹 Delete Piece (DELETE /api/pieces/{id}) */
   const handleDelete = async (id) => {
     try {
       await axios.delete(`http://localhost:8080/api/pieces/${id}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
       });
       setDeleteModal(null);
-      fetchBoxDetails();
       fetchPieces();
-      alert("Piece deleted successfully ✅");
+      fetchBoxDetails();
+      toast.success("Piece deleted successfully");
     } catch (err) {
       console.error("Error deleting piece:", err);
-      alert("Failed to delete piece ❌");
+      toast.error("Failed to delete piece");
     }
   };
 
   const handleSell = (piece) => setShowSoldOut(piece);
+
+  // Helpers for display
+  const displayBoxIdentity =
+    box?.identity || container?.identity || activeBoxId || "-";
+  const displayCounter =
+    container?.counterId != null ? container.counterId : "-";
 
   return (
     <div id="pieceManagement">
@@ -283,9 +349,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
       <div className="section-header">
         <div className="piece-management-header">
           <h2>Piece Management</h2>
-          <h3 id="pieceTitle">
-            Box #{box?.identity || boxId} - Piece Management
-          </h3>
+          <h3 id="pieceTitle">Box #{displayBoxIdentity} - Piece Management</h3>
         </div>
 
         {/* <button
@@ -314,7 +378,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
             </div>
             <div className="weight-content">
               <div className="weight-label">Fixed Weight</div>
-              <div className="weight-value">{box?.fixedWeight ?? "-"}g</div>
+              <div className="weight-value">{box?.fixedWeight ?? 0}g</div>
             </div>
           </div>
           <div className="weight-card">
@@ -323,7 +387,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
             </div>
             <div className="weight-content">
               <div className="weight-label">Net Weight</div>
-              <div className="weight-value">{box?.netWeight ?? "-"}g</div>
+              <div className="weight-value">{box?.netWeight ?? 0}g</div>
             </div>
           </div>
           <div className="weight-card">
@@ -332,7 +396,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
             </div>
             <div className="weight-content">
               <div className="weight-label">Variable Weight</div>
-              <div className="weight-value">{box?.variableWeight ?? "-"}g</div>
+              <div className="weight-value">{box?.variableWeight ?? 0}g</div>
             </div>
           </div>
           <div className="weight-card">
@@ -341,7 +405,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
             </div>
             <div className="weight-content">
               <div className="weight-label">Gross Weight</div>
-              <div className="weight-value">{box?.grossWeight ?? "-"}g</div>
+              <div className="weight-value">{box?.grossWeight ?? 0}g</div>
             </div>
           </div>
         </div>
@@ -355,8 +419,9 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
               <th>Date</th>
               <th>Barcode</th>
               <th>Type</th>
-              <th>Weight (g)</th>
-              <th>VWeight (g)</th>
+              <th>Purity</th>
+              <th>Net Weight (g)</th>
+              <th>Variable Weight (g)</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -364,13 +429,13 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
           <tbody id="piecesTableBody">
             {loading ? (
               <tr>
-                <td colSpan={7} className="text-center py-6">
+                <td colSpan={8} className="text-center py-6">
                   Loading...
                 </td>
               </tr>
             ) : pieces.length === 0 ? (
               <tr>
-                <td colSpan={7} className="empty-state text-center py-6">
+                <td colSpan={8} className="empty-state text-center py-6">
                   <div className="flex flex-col items-center">
                     <Gem size={32} />
                     <h3 className="font-semibold">No pieces found</h3>
@@ -379,75 +444,71 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 </td>
               </tr>
             ) : (
-              pieces.map((piece) => (
-                <tr key={piece.id}>
-                  <td>{new Date(piece.date).toLocaleDateString()}</td>
-                  <td className="font-semibold">{piece.barcode}</td>
-                  <td>{piece.type}</td>
-                  <td>{piece.weight}g</td>
-                  <td>{piece.vweight}g</td>
-                  <td>
-                    <span
-                      className={`status-badge ${
-                        piece.status === "AVAILABLE"
-                          ? "status-available"
-                          : "status-sold"
-                      }`}
-                    >
-                      {piece.status}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="action-buttons">
-                      <button
-                        className="btn btn-small btn-success"
-                        onClick={() => handleSell(piece)} // ✅ pass whole object
-                      >
-                        <ShoppingCart size={14} /> Sell
-                      </button>
+              pieces.map((piece) => {
+                const statusLabel = piece.sold ? "SOLD" : "AVAILABLE";
+                const statusClass = piece.sold
+                  ? "status-sold"
+                  : "status-available";
 
-                      <button
-                        className="btn btn-small btn-primary"
-                        onClick={() => handleTransfer(piece)} // ✅ pass whole object
-                      >
-                        <Move size={14} /> Transfer
-                      </button>
-                      <button
-                        className="btn btn-small btn-warning flex items-center gap-1"
-                        onClick={() => setShowEdit(piece)}
-                      >
-                        <Edit2 size={14} /> Edit
-                      </button>
-                      <button
-                        className="btn btn-small btn-danger flex items-center gap-1"
-                        onClick={() => setDeleteModal(piece)} // ✅ open confirmation modal
-                      >
-                        <Trash2 size={14} /> Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                return (
+                  <tr key={piece.id}>
+                    <td>
+                      {piece.createdAt
+                        ? new Date(piece.createdAt).toLocaleDateString()
+                        : "-"}
+                    </td>
+                    <td className="font-semibold">{piece.barcode || "-"}</td>
+                    <td>{piece.type}</td>
+                    <td>{piece.purity}</td>
+                    <td>{piece.netWeight}g</td>
+                    <td>{piece.variableWeight}g</td>
+                    <td>
+                      <span className={`status-badge ${statusClass}`}>
+                        {statusLabel}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="action-buttons">
+                        <button
+                          className="btn btn-small btn-success"
+                          onClick={() => handleSell(piece)}
+                          disabled={piece.sold}
+                        >
+                          <ShoppingCart size={14} /> Sell
+                        </button>
+
+                        <button
+                          className="btn btn-small btn-primary"
+                          onClick={() => handleTransfer(piece)}
+                        >
+                          <Move size={14} /> Transfer
+                        </button>
+                        <button
+                          className="btn btn-small btn-warning flex items-center gap-1"
+                          onClick={() => setShowEdit(piece)}
+                        >
+                          <Edit2 size={14} /> Edit
+                        </button>
+                        <button
+                          className="btn btn-small btn-danger flex items-center gap-1"
+                          onClick={() => setDeleteModal(piece)}
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      {/* ✅ Modals (same as before, updated to use `box`) */}
       {/* Create Modal */}
       {showCreate && (
         <Modal title="Add New Piece" onClose={() => setShowCreate(false)}>
           <form onSubmit={handleAddSubmit} className="piece-form">
-            <div className="form-group">
-              <label>Date</label>
-              <input
-                type="date"
-                id="date"
-                value={formData.date}
-                onChange={handleChange}
-                required
-              />
-            </div>
             <div className="form-group">
               <label>Barcode</label>
               <input
@@ -455,43 +516,67 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 id="barcode"
                 value={formData.barcode}
                 onChange={handleChange}
-                // required
               />
             </div>
+
             <div className="form-group">
               <label>Type</label>
-              <input
-                type="text"
+              <select
                 id="type"
                 value={formData.type}
                 onChange={handleChange}
                 required
-              />
+              >
+                <option value="">Select Type</option>
+                {typeOptions.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            <div className="form-group">
+              <label>Purity</label>
+              <select
+                id="purity"
+                value={formData.purity}
+                onChange={handleChange}
+              >
+                <option value="">Select Purity</option>
+                {purityOptions.map((p) => (
+                  <option key={p.id} value={p.purity}>
+                    {p.purity}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="form-row">
               <div className="form-group">
-                <label>Weight (g)</label>
+                <label>Net Weight (g)</label>
                 <input
                   type="number"
-                  id="weight"
+                  id="netWeight"
                   step="0.01"
-                  value={formData.weight}
+                  value={formData.netWeight}
                   onChange={handleChange}
                   required
                 />
               </div>
               <div className="form-group">
-                <label>VWeight (g)</label>
+                <label>Variable Weight (g)</label>
                 <input
                   type="number"
-                  id="vweight"
+                  id="variableWeight"
                   step="0.01"
-                  value={formData.vweight}
+                  value={formData.variableWeight}
                   onChange={handleChange}
                   required
                 />
               </div>
             </div>
+
             <div className="form-actions">
               <button
                 type="button"
@@ -513,59 +598,75 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
         <Modal title="Edit Piece" onClose={() => setShowEdit(null)}>
           <form onSubmit={handleEditSubmit} className="piece-form">
             <div className="form-group">
-              <label>Date</label>
-              <input
-                type="date"
-                value={showEdit.date.split("T")[0]}
-                onChange={(e) =>
-                  setShowEdit({ ...showEdit, date: e.target.value })
-                }
-                required
-              />
-            </div>
-            <div className="form-group">
               <label>Barcode</label>
               <input
                 type="text"
-                value={showEdit.barcode}
+                value={showEdit.barcode || ""}
                 onChange={(e) =>
                   setShowEdit({ ...showEdit, barcode: e.target.value })
                 }
-                required
               />
             </div>
             <div className="form-group">
               <label>Type</label>
-              <input
-                type="text"
-                value={showEdit.type}
+              <select
+                value={showEdit.type || ""}
                 onChange={(e) =>
                   setShowEdit({ ...showEdit, type: e.target.value })
                 }
                 required
-              />
+              >
+                <option value="">Select Type</option>
+                {typeOptions.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Purity</label>
+              <select
+                value={showEdit.purity || ""}
+                onChange={(e) =>
+                  setShowEdit({ ...showEdit, purity: e.target.value })
+                }
+              >
+                <option value="">Select Purity</option>
+                {purityOptions.map((p) => (
+                  <option key={p.id} value={p.purity}>
+                    {p.purity}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label>Weight (g)</label>
+                <label>Net Weight (g)</label>
                 <input
                   type="number"
                   step="0.01"
-                  value={showEdit.weight}
+                  value={showEdit.netWeight}
                   onChange={(e) =>
-                    setShowEdit({ ...showEdit, weight: e.target.value })
+                    setShowEdit({
+                      ...showEdit,
+                      netWeight: e.target.value,
+                    })
                   }
                   required
                 />
               </div>
               <div className="form-group">
-                <label>VWeight (g)</label>
+                <label>Variable Weight (g)</label>
                 <input
                   type="number"
                   step="0.01"
-                  value={showEdit.vweight}
+                  value={showEdit.variableWeight}
                   onChange={(e) =>
-                    setShowEdit({ ...showEdit, vweight: e.target.value })
+                    setShowEdit({
+                      ...showEdit,
+                      variableWeight: e.target.value,
+                    })
                   }
                   required
                 />
@@ -602,9 +703,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                   color: "#64748b",
                 }}
               >
-                {box
-                  ? `Counter ${box.counterId} → Box #${box.identity}`
-                  : `Box #${boxId}`}
+                {`Counter ${displayCounter} → Box #${displayBoxIdentity}`}
               </div>
             </div>
 
@@ -669,17 +768,24 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
               e.preventDefault();
               try {
                 await axios.post(
-                  `http://localhost:8080/api/pieces/sell?pieceId=${showSoldOut.id}`,
-                  {},
-                  { headers: { Authorization: `Bearer ${getToken()}` } }
+                  "http://localhost:8080/api/pieces/sold",
+                  null,
+                  {
+                    headers: { Authorization: `Bearer ${getToken()}` },
+                    params: { id: showSoldOut.id },
+                  }
                 );
                 setShowSoldOut(null);
-                fetchPieces();
-                fetchBoxDetails();
-                alert(`Piece "${showSoldOut.barcode}" marked as sold out ✅`);
+                await fetchPieces();
+                await fetchBoxDetails();
+                toast.success(
+                  `Piece "${
+                    showSoldOut.barcode || showSoldOut.id
+                  }" marked as sold`
+                );
               } catch (err) {
                 console.error("Error selling piece:", err);
-                alert("Failed to mark as sold out ❌");
+                toast.error("Failed to mark as sold");
               }
             }}
             className="piece-form"
@@ -687,11 +793,12 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
             <div className="form-group">
               <p>
                 Are you sure you want to mark piece{" "}
-                <strong>{showSoldOut.barcode}</strong> as sold out?
+                <strong>{showSoldOut.barcode || showSoldOut.id}</strong> as
+                sold?
               </p>
               <p>
                 <small style={{ color: "#dc2626" }}>
-                  This will change the status to sold out.
+                  This will change the status to sold.
                 </small>
               </p>
             </div>
@@ -705,7 +812,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
                 Cancel
               </button>
               <button type="submit" className="btn btn-success">
-                Mark as Sold Out
+                Mark as Sold
               </button>
             </div>
           </form>
@@ -718,7 +825,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
           <div className="form-group">
             <p>
               Are you sure you want to delete piece{" "}
-              <strong>{deleteModal.barcode}</strong>?
+              <strong>{deleteModal.barcode || deleteModal.id}</strong>?
             </p>
           </div>
 
@@ -739,6 +846,7 @@ export default function PieceManagementBox({ container, boxId, onBack }) {
           </div>
         </Modal>
       )}
+      <ToastContainer position="top-right" autoClose={3000} theme="colored" />
     </div>
   );
 }

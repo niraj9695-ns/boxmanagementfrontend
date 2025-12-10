@@ -12,55 +12,93 @@ function DashboardStats() {
     trays: 0,
     stock: 0,
   });
+  const [loading, setLoading] = useState(true);
 
-  // Get token from localStorage
-  const token = localStorage.getItem("token");
+  // Get token from localStorage and normalize it (strip "Bearer " if present)
+  let rawToken = localStorage.getItem("token");
+  if (rawToken?.startsWith("Bearer ")) rawToken = rawToken.slice(7);
+  const token = rawToken || null;
 
   useEffect(() => {
     const fetchData = async () => {
+      setLoading(true);
       try {
-        // Fetch Counters
-        const countersRes = await fetch("http://localhost:8080/api/counters", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const countersData = await countersRes.json();
+        const headers = token
+          ? {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            }
+          : { "Content-Type": "application/json" };
 
-        // Fetch Boxes + Trays
-        const boxesRes = await fetch("http://localhost:8080/api/boxes", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        // Fetch Counters
+        const countersRes = await fetch(
+          "http://localhost:8080/api/counter/getAll",
+          { headers }
+        );
+        let countersData = [];
+        if (countersRes.ok) {
+          countersData = await countersRes.json();
+        } else {
+          console.warn(
+            "Failed to fetch counters:",
+            countersRes.status,
+            countersRes.statusText
+          );
+        }
+
+        // Fetch Boxes + Trays (single endpoint returns both types)
+        const boxesRes = await fetch("http://localhost:8080/api/box/getAll", {
+          headers,
         });
-        const boxesData = await boxesRes.json();
+        let boxesData = [];
+        if (boxesRes.ok) {
+          boxesData = await boxesRes.json();
+        } else {
+          console.warn(
+            "Failed to fetch boxes:",
+            boxesRes.status,
+            boxesRes.statusText
+          );
+        }
 
         // Bifurcate boxes and trays based on type
-        const totalBoxes = boxesData.filter(
-          (item) => item.type === "BOX"
-        ).length;
-        const totalTrays = boxesData.filter(
-          (item) => item.type === "TRAY"
-        ).length;
+        const totalBoxes = Array.isArray(boxesData)
+          ? boxesData.filter((item) => item.type === "BOX").length
+          : 0;
+        const totalTrays = Array.isArray(boxesData)
+          ? boxesData.filter((item) => item.type === "TRAY").length
+          : 0;
 
-        // Fetch Total Pieces
-        const piecesRes = await fetch("http://localhost:8080/api/pieces", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const piecesData = await piecesRes.json();
-        const totalPieces = piecesData.length || 0;
+        // Fetch Total Pieces (assuming endpoint: /api/piece/getAll)
+        const piecesRes = await fetch(
+          "http://localhost:8080/api/pieces/getAll",
+          {
+            headers,
+          }
+        );
+        let piecesData = [];
+        if (piecesRes.ok) {
+          piecesData = await piecesRes.json();
+        } else {
+          console.warn(
+            "Failed to fetch pieces:",
+            piecesRes.status,
+            piecesRes.statusText
+          );
+        }
+        const totalPieces = Array.isArray(piecesData) ? piecesData.length : 0;
 
         // Update stats state
         setStats({
-          counters: countersData.length || 0,
+          counters: Array.isArray(countersData) ? countersData.length : 0,
           boxes: totalBoxes,
           trays: totalTrays,
           stock: totalPieces,
         });
       } catch (error) {
         console.error("Error fetching dashboard stats:", error);
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -75,7 +113,7 @@ function DashboardStats() {
         </div>
         <div className="stat-content">
           <div className="stat-label">Total Counters</div>
-          <div className="stat-value">{stats.counters}</div>
+          <div className="stat-value">{loading ? "…" : stats.counters}</div>
         </div>
       </div>
 
@@ -85,7 +123,7 @@ function DashboardStats() {
         </div>
         <div className="stat-content">
           <div className="stat-label">Total Boxes</div>
-          <div className="stat-value">{stats.boxes}</div>
+          <div className="stat-value">{loading ? "…" : stats.boxes}</div>
         </div>
       </div>
 
@@ -95,7 +133,7 @@ function DashboardStats() {
         </div>
         <div className="stat-content">
           <div className="stat-label">Total Trays</div>
-          <div className="stat-value">{stats.trays}</div>
+          <div className="stat-value">{loading ? "…" : stats.trays}</div>
         </div>
       </div>
 
@@ -105,7 +143,7 @@ function DashboardStats() {
         </div>
         <div className="stat-content">
           <div className="stat-label">Total Pieces</div>
-          <div className="stat-value">{stats.stock}</div>
+          <div className="stat-value">{loading ? "…" : stats.stock}</div>
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ import {
   Edit2,
   Trash2,
   ArrowLeft,
+  X,
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
@@ -15,16 +16,17 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
-import { X } from "lucide-react";
 
 import PieceManagementBox from "./PieceManagementBox";
 
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-/* 🔹 Utility: Get JWT token */
+/* 🔹 Utility: Get JWT token (tolerant: strips 'Bearer ' if present) */
 function getToken() {
-  return localStorage.getItem("token");
+  let t = localStorage.getItem("token");
+  if (!t) return null;
+  return t.startsWith("Bearer ") ? t.slice(7) : t;
 }
 
 /* 🔹 Modal Component */
@@ -48,17 +50,19 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-/* 🔹 API Wrapper */
+/* 🔹 API Wrapper (uses box endpoints for trays too) */
 class TrayClass {
   static async getAll() {
-    const res = await axios.get("http://localhost:8080/api/boxes", {
+    // GET /api/box/getAll
+    const res = await axios.get("http://localhost:8080/api/box/getAll", {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
     return res.data;
   }
 
   static async create(data) {
-    const res = await axios.post("http://localhost:8080/api/boxes", data, {
+    // POST /api/box/add
+    const res = await axios.post("http://localhost:8080/api/box/add", data, {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getToken()}`,
@@ -67,8 +71,19 @@ class TrayClass {
     return res.data;
   }
 
+  static async getById(id) {
+    // GET /api/box/getById?Id=...
+    const res = await axios.get("http://localhost:8080/api/box/getById", {
+      params: { Id: id },
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    return res.data;
+  }
+
   static async update(id, data) {
-    const res = await axios.put(`http://localhost:8080/api/boxes/${id}`, data, {
+    // PUT /api/box/update?Id=...
+    const res = await axios.put("http://localhost:8080/api/box/update", data, {
+      params: { Id: id },
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getToken()}`,
@@ -78,18 +93,38 @@ class TrayClass {
   }
 
   static async delete(id) {
-    await axios.delete(`http://localhost:8080/api/boxes/${id}`, {
+    // DELETE /api/box/delete?Id=...
+    const res = await axios.delete("http://localhost:8080/api/box/delete", {
+      params: { Id: id },
       headers: { Authorization: `Bearer ${getToken()}` },
     });
-    return true;
+    return res.data;
   }
 }
+
+/* 🔹 Counter API helpers */
+const CounterAPI = {
+  async getAll() {
+    const res = await axios.get("http://localhost:8080/api/counter/getAll", {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    return res.data;
+  },
+
+  async getById(id) {
+    const res = await axios.get("http://localhost:8080/api/counter/getById", {
+      params: { Id: id },
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    return res.data;
+  },
+};
 
 const TrayManagement = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [trays, setTrays] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("trays");
+  const [view, setView] = useState("trays"); // "trays" | "pieces"
   const [selectedTrayId, setSelectedTrayId] = useState(null);
 
   // Modal states
@@ -97,7 +132,7 @@ const TrayManagement = () => {
   const [showEdit, setShowEdit] = useState(null);
   const [showDelete, setShowDelete] = useState(null);
 
-  /* 🔹 Fetch Trays */
+  /* 🔹 Fetch Trays + counters and enrich with counterName */
   useEffect(() => {
     refreshTrays();
   }, []);
@@ -105,11 +140,31 @@ const TrayManagement = () => {
   const refreshTrays = async () => {
     try {
       setLoading(true);
-      const data = await TrayClass.getAll();
-      const filtered = data.filter((item) => item.type === "TRAY");
+      const [boxesData, countersData] = await Promise.all([
+        TrayClass.getAll(),
+        CounterAPI.getAll(),
+      ]);
+
+      const countersMap = {};
+      if (Array.isArray(countersData)) {
+        countersData.forEach(
+          (c) => (countersMap[c.id] = c.name || `Counter ${c.id}`)
+        );
+      }
+
+      const all = Array.isArray(boxesData) ? boxesData : [];
+      const filtered = all
+        .filter((item) => (item.type || "").toUpperCase() === "TRAY")
+        .map((t) => ({
+          ...t,
+          counterName: t.counterId
+            ? countersMap[t.counterId] ?? `Counter ${t.counterId}`
+            : "",
+        }));
+
       setTrays(filtered);
     } catch (err) {
-      toast.error("Error fetching trays");
+      toast.error("Error fetching trays or counters");
       console.error("Error fetching trays:", err);
     } finally {
       setLoading(false);
@@ -117,20 +172,16 @@ const TrayManagement = () => {
   };
 
   /* 🔹 Handlers */
-  const handleSearch = (e) => {
-    setSearchQuery(e.target.value);
-  };
-
+  const handleSearch = (e) => setSearchQuery(e.target.value);
   const handleManagePieces = (id) => {
     setSelectedTrayId(id);
     setView("pieces");
   };
 
-  /* 🔹 Filtered trays */
   const filteredTrays = trays.filter(
     (tray) =>
-      tray.identity?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tray.counterName?.toLowerCase().includes(searchQuery.toLowerCase())
+      (tray.identity || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (tray.counterName || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   /* 🔹 Conditional Rendering */
@@ -141,7 +192,7 @@ const TrayManagement = () => {
           className="btn btn-secondary flex items-center gap-2 mb-4"
           onClick={() => {
             setView("trays");
-            refreshTrays(); // 🔹 Refresh tray list when going back
+            refreshTrays(); // refresh when returning
           }}
         >
           <ArrowLeft size={18} /> Back to Trays
@@ -152,12 +203,12 @@ const TrayManagement = () => {
   }
 
   return (
-    <div id="boxesTab">
+    <div id="traysTab">
       {/* Section Header */}
       <div className="section-header flex items-center justify-between">
         <h2 className="text-xl font-semibold">All Trays</h2>
 
-        {/* 🔍 Search */}
+        {/* Search */}
         <div style={{ margin: "1rem 0" }}>
           <div
             style={{
@@ -173,8 +224,8 @@ const TrayManagement = () => {
             <Search size={18} style={{ color: "#6b7280" }} />
             <input
               type="text"
-              id="boxesSearch"
-              placeholder="Search Trays..."
+              id="traysSearch"
+              placeholder="Search trays..."
               value={searchQuery}
               onChange={handleSearch}
               style={{
@@ -187,14 +238,25 @@ const TrayManagement = () => {
             />
           </div>
         </div>
-        <button
-          id="addBoxBtn"
-          className="btn btn-success flex items-center gap-2"
-          onClick={() => setShowCreate(true)}
-        >
-          <Plus size={18} />
-          Add New Tray
-        </button>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            id="addTrayBtn"
+            className="btn btn-success flex items-center gap-2"
+            onClick={() => setShowCreate(true)}
+          >
+            <Plus size={18} />
+            Add New Tray
+          </button>
+
+          <button
+            className="btn btn-secondary"
+            onClick={() => refreshTrays()}
+            title="Refresh"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Trays List */}
@@ -207,53 +269,60 @@ const TrayManagement = () => {
               key={tray.id}
               className="box-list-item border rounded p-4 shadow-sm bg-white"
             >
-              {/* Tray Header */}
               <div className="box-header">
                 <div>
                   <h3 className="box-title">Tray #{tray.identity}</h3>
                   <div className="box-meta flex items-center gap-4 text-sm text-gray-600">
-                    <span className="box-type-badge">TRAY</span>
+                    <span className="box-type-badge">
+                      {tray.type ?? "TRAY"}
+                    </span>
                     <div className="box-pieces flex items-center gap-1">
                       <Gem size={14} />
-                      <span>{tray.totalPieces || 0} pieces</span>
+                      <span>
+                        {tray.totalPiece ?? tray.totalPieces ?? 0} pieces
+                      </span>
                     </div>
-                    <span className="counter-name">{tray.counterName}</span>
+                    <span className="counter-name">
+                      {tray.counterName ?? `Counter ${tray.counterId ?? "-"}`}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* Tray Weights */}
               <div className="box-weights grid grid-cols-2 md:grid-cols-4 gap-4 my-3">
                 <div className="weight-item">
                   <div className="weight-column-label">Fixed Weight</div>
                   <div className="weight-column-value">
-                    {tray.fixedWeight || 0}g
+                    {tray.fixedWeight ?? 0}g
                   </div>
                 </div>
                 <div className="weight-item">
                   <div className="weight-column-label">Net Weight</div>
                   <div className="weight-column-value">
-                    {tray.netWeight || 0}g
+                    {tray.netWeight ?? 0}g
                   </div>
                 </div>
                 <div className="weight-item">
                   <div className="weight-column-label">Variable Weight</div>
                   <div className="weight-column-value">
-                    {tray.variableWeight || 0}g
+                    {tray.variableWeight ?? 0}g
                   </div>
                 </div>
                 <div className="weight-item">
                   <div className="weight-column-label">Gross Weight</div>
                   <div className="weight-column-value">
-                    {tray.grossWeight || 0}g
+                    {tray.grossWeight ?? 0}g
                   </div>
                 </div>
               </div>
 
-              {/* Tray Actions */}
               <div className="box-actions flex items-center justify-between mt-3">
                 <div className="box-total font-semibold">
-                  Total: {tray.totalAll?.toFixed(3) || "0.000"}g
+                  Total:{" "}
+                  {typeof tray.totalAll === "number"
+                    ? tray.totalAll.toFixed(3)
+                    : "0.000"}
+                  g
                 </div>
                 <div className="action-buttons flex gap-2">
                   <button
@@ -262,18 +331,37 @@ const TrayManagement = () => {
                   >
                     <Settings size={16} /> Manage
                   </button>
+
                   <button
                     className="btn btn-warning btn-small flex items-center gap-1"
-                    onClick={() => setShowEdit(tray)}
+                    onClick={async () => {
+                      try {
+                        const fresh = await TrayClass.getById(tray.id);
+                        // enrich with counterName (best-effort)
+                        try {
+                          const c = await CounterAPI.getById(fresh.counterId);
+                          fresh.counterName =
+                            c?.name ?? `Counter ${fresh.counterId}`;
+                        } catch {
+                          fresh.counterName =
+                            fresh.counterName ?? `Counter ${fresh.counterId}`;
+                        }
+                        setShowEdit(fresh);
+                      } catch (err) {
+                        console.error("Failed to fetch tray details:", err);
+                        toast.error("Failed to fetch tray details for edit");
+                      }
+                    }}
                   >
                     <Edit2 size={16} /> Edit
                   </button>
-                  {/* <button
+
+                  <button
                     className="btn btn-danger btn-small flex items-center gap-1"
                     onClick={() => setShowDelete(tray)}
                   >
                     <Trash2 size={16} /> Delete
-                  </button> */}
+                  </button>
                 </div>
               </div>
             </div>
@@ -326,6 +414,7 @@ const TrayManagement = () => {
                     toast.success("Tray deleted successfully");
                     refreshTrays();
                   } catch (err) {
+                    console.error("Delete failed:", err);
                     toast.error("Failed to delete tray");
                   } finally {
                     setShowDelete(null);
@@ -357,29 +446,36 @@ function CreateTrayForm({ onClose, onSaved }) {
 
   const fetchCounters = async () => {
     try {
-      const res = await axios.get("http://localhost:8080/api/counters", {
+      const res = await axios.get("http://localhost:8080/api/counter/getAll", {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      setCounters(res.data);
+      setCounters(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
+      console.error("Failed to load counters:", err);
       toast.error("Failed to load counters");
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!counterId) {
+      toast.error("Please select a counter");
+      return;
+    }
     try {
-      await TrayClass.create({
+      const payload = {
+        counterId: parseInt(counterId, 10),
         type: "TRAY",
         identity,
-        counterId: parseInt(counterId),
+        fixedWeight: parseFloat(fixedWeight),
         date,
-        fixedWeight,
-      });
+      };
+      await TrayClass.create(payload); // POST /api/box/add
       toast.success("Tray created successfully");
       onSaved();
       onClose();
     } catch (err) {
+      console.error("Failed to create tray:", err);
       toast.error("Failed to create tray");
     }
   };
@@ -395,6 +491,7 @@ function CreateTrayForm({ onClose, onSaved }) {
           required
         />
       </div>
+
       <div className="form-group">
         <label>Counter</label>
         <select
@@ -410,108 +507,7 @@ function CreateTrayForm({ onClose, onSaved }) {
           ))}
         </select>
       </div>
-      <div className="form-group">
-        <label>Date</label>
-        <LocalizationProvider dateAdapter={AdapterDayjs}>
-          <DatePicker
-            format="YYYY-MM-DD" // 🔹 keep backend format
-            value={dayjs(date)} // convert stored string → dayjs
-            onChange={(newValue) => {
-              if (newValue) setDate(newValue.format("YYYY-MM-DD")); // store as string
-            }}
-            slotProps={{ textField: { fullWidth: true, required: true } }}
-          />
-        </LocalizationProvider>
-      </div>
 
-      <div className="form-group">
-        <label>Fixed Weight (g)</label>
-        <input
-          type="number"
-          step="0.01"
-          value={fixedWeight}
-          onChange={(e) => setFixedWeight(parseFloat(e.target.value))}
-          required
-        />
-      </div>
-      <div className="form-actions flex gap-2">
-        <button type="button" onClick={onClose} className="btn btn-secondary">
-          Cancel
-        </button>
-        <button type="submit" className="btn btn-success">
-          Create
-        </button>
-      </div>
-    </form>
-  );
-}
-
-/* 🔹 Edit Tray Form */
-function EditTrayForm({ tray, onClose, onSaved }) {
-  const [identity, setIdentity] = useState(tray.identity);
-  const [date, setDate] = useState(tray.date.split("T")[0]);
-  const [fixedWeight, setFixedWeight] = useState(tray.fixedWeight);
-  const [counters, setCounters] = useState([]);
-  const [counterId, setCounterId] = useState(tray.counterId || "");
-
-  useEffect(() => {
-    fetchCounters();
-  }, []);
-
-  const fetchCounters = async () => {
-    try {
-      const res = await axios.get("http://localhost:8080/api/counters", {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      setCounters(res.data);
-    } catch (err) {
-      toast.error("Failed to load counters");
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await TrayClass.update(tray.id, {
-        identity,
-        counterId: parseInt(counterId),
-        date,
-        fixedWeight,
-      });
-      toast.success("Tray updated successfully");
-      onSaved();
-      onClose();
-    } catch (err) {
-      toast.error("Failed to update tray");
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="form-grid">
-      <div className="form-group">
-        <label>Identity</label>
-        <input
-          type="text"
-          value={identity}
-          onChange={(e) => setIdentity(e.target.value)}
-          required
-        />
-      </div>
-      <div className="form-group">
-        <label>Counter</label>
-        <select
-          value={counterId}
-          onChange={(e) => setCounterId(e.target.value)}
-          required
-        >
-          <option value="">Select Counter</option>
-          {counters.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
       <div className="form-group">
         <label>Date</label>
         <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -536,6 +532,144 @@ function EditTrayForm({ tray, onClose, onSaved }) {
           required
         />
       </div>
+
+      <div className="form-actions flex gap-2">
+        <button type="button" onClick={onClose} className="btn btn-secondary">
+          Cancel
+        </button>
+        <button type="submit" className="btn btn-success">
+          Create
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/* 🔹 Edit Tray Form */
+function EditTrayForm({ tray, onClose, onSaved }) {
+  const [identity, setIdentity] = useState(tray.identity ?? "");
+  const [date, setDate] = useState(
+    tray.createdAt
+      ? tray.createdAt.split("T")[0]
+      : new Date().toISOString().split("T")[0]
+  );
+  const [fixedWeight, setFixedWeight] = useState(tray.fixedWeight ?? 0);
+  const [type, setType] = useState(tray.type ?? "TRAY");
+  const [counters, setCounters] = useState([]);
+  const [counterId, setCounterId] = useState(tray.counterId ?? "");
+
+  useEffect(() => {
+    fetchCounters();
+    // if counterName missing, try fetching single counter
+    if (!tray.counterName && tray.counterId) {
+      (async () => {
+        try {
+          const c = await CounterAPI.getById(tray.counterId);
+          // we don't need to set counterName in form, we populate select via counters list
+          if (c?.id) setCounterId(c.id);
+        } catch {
+          // ignore
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fetchCounters = async () => {
+    try {
+      const res = await axios.get("http://localhost:8080/api/counter/getAll", {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      setCounters(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Failed to load counters:", err);
+      toast.error("Failed to load counters");
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        type,
+        identity,
+        fixedWeight: parseFloat(fixedWeight),
+        date,
+      };
+      await TrayClass.update(tray.id, payload); // PUT /api/box/update?Id=...
+      // if counter was changed, backend expects counterId in body? your API showed only type/identity/fixedWeight —
+      // if needed include counterId here too:
+      // payload.counterId = parseInt(counterId, 10);
+      toast.success("Tray updated successfully");
+      onSaved();
+      onClose();
+    } catch (err) {
+      console.error("Failed to update tray:", err);
+      toast.error("Failed to update tray");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="form-grid">
+      <div className="form-group">
+        <label>Identity</label>
+        <input
+          type="text"
+          value={identity}
+          onChange={(e) => setIdentity(e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="form-group">
+        <label>Counter</label>
+        <select
+          value={counterId}
+          onChange={(e) => setCounterId(e.target.value)}
+          required
+        >
+          <option value="">Select Counter</option>
+          {counters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="form-group">
+        <label>Type</label>
+        <select value={type} onChange={(e) => setType(e.target.value)} required>
+          <option value="TRAY">TRAY</option>
+          <option value="BOX">BOX</option>
+        </select>
+      </div>
+
+      <div className="form-group">
+        <label>Date</label>
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <DatePicker
+            format="YYYY-MM-DD"
+            value={dayjs(date)}
+            onChange={(newValue) => {
+              if (newValue) setDate(newValue.format("YYYY-MM-DD"));
+            }}
+            slotProps={{ textField: { fullWidth: true, required: true } }}
+          />
+        </LocalizationProvider>
+      </div>
+
+      <div className="form-group">
+        <label>Fixed Weight (g)</label>
+        <input
+          type="number"
+          step="0.01"
+          value={fixedWeight}
+          onChange={(e) => setFixedWeight(parseFloat(e.target.value))}
+          required
+        />
+      </div>
+
       <div className="form-actions flex gap-2">
         <button type="button" onClick={onClose} className="btn btn-secondary">
           Cancel

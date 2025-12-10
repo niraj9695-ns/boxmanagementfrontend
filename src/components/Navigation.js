@@ -3,7 +3,16 @@ import "../css/styles.css";
 import "../css/components.css";
 
 // Import lucide-react icons
-import { Archive, Package, Layers, BarChart3, Gem } from "lucide-react";
+import {
+  Archive,
+  Package,
+  Layers,
+  BarChart3,
+  Gem,
+  ScanLine,
+  ScanBarcode,
+  Settings,
+} from "lucide-react";
 
 function Navigation({ activeTab, setActiveTab }) {
   return (
@@ -34,6 +43,20 @@ function Navigation({ activeTab, setActiveTab }) {
         onClick={() => setActiveTab("reports")}
       >
         <Gem size={20} style={{ marginRight: "8px" }} /> Pieces
+      </button>
+
+      <button
+        className={`nav-btn ${activeTab === "scanner" ? "active" : ""}`}
+        onClick={() => setActiveTab("scanner")}
+      >
+        <ScanLine size={20} style={{ marginRight: "8px" }} /> Scanner
+      </button>
+
+      <button
+        className={`nav-btn ${activeTab === "settings" ? "active" : ""}`}
+        onClick={() => setActiveTab("settings")}
+      >
+        <Settings size={20} style={{ marginRight: "8px" }} /> Settings
       </button>
     </nav>
   );
