@@ -13,6 +13,7 @@ import {
   Edit2,
   Trash2,
   X,
+  statement,
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
@@ -352,13 +353,13 @@ export default function PieceManagement({ container, boxId, onBack }) {
           <h3 id="pieceTitle">Box #{displayBoxIdentity} - Piece Management</h3>
         </div>
 
-        {/* <button
+        <button
           onClick={onBack}
           id="backToContainers"
           className="btn btn-secondary flex items-center gap-1"
         >
-          <ArrowLeft size={16} /> Back to Containers
-        </button> */}
+          <statement size={16} /> Transactions
+        </button>
 
         <button
           id="addPieceBtn"

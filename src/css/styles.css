@@ -915,3 +915,132 @@ body {
   color: #1e293b;
   margin: 0;
 }
+
+/* Transaction Styles */
+.transaction-filters {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.filter-select {
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  font-size: 0.875rem;
+  min-width: 120px;
+}
+
+.transaction-date {
+  display: flex;
+  flex-direction: column;
+}
+
+.date-primary {
+  font-weight: 500;
+  color: #1e293b;
+  font-size: 0.875rem;
+}
+
+.barcode-text {
+  font-family: "Courier New", monospace;
+  font-weight: 600;
+  color: #1e40af;
+  background: #eff6ff;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.action-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.action-add {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.action-transfer {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.action-sold_out {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.action-delete {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.action-edit {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+.action-add_loose {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.action-sell_loose {
+  background: #fef7cd;
+  color: #ca8a04;
+}
+
+.action-transfer_loose {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.box-reference {
+  background: #f1f5f9;
+  color: #475569;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.null-value {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.role-badge {
+  background: #1e293b;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.type-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.type-piece {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.type-loose-item {
+  background: #f3e8ff;
+  color: #7c3aed;
+}

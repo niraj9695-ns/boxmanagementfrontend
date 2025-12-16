@@ -9,6 +9,7 @@ import TrayManagement from "./components/TrayManagement";
 import GetAllPieces from "./components/GetAllPieces";
 import BarcodeScanner from "./components/BarcodeScanner";
 import SettingsTab from "./components/SettingsTab";
+import Transactions from "./components/Transactions";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -50,6 +51,7 @@ function App() {
             {activeTab === "reports" && <GetAllPieces />}
             {activeTab === "scanner" && <BarcodeScanner />}
             {activeTab === "settings" && <SettingsTab />}
+            {activeTab === "transactions" && <Transactions />}
           </div>
         </div>
       )}

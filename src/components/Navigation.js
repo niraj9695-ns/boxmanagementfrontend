@@ -58,6 +58,13 @@ function Navigation({ activeTab, setActiveTab }) {
       >
         <Settings size={20} style={{ marginRight: "8px" }} /> Settings
       </button>
+
+      <button
+        className={`nav-btn ${activeTab === "transactions" ? "active" : ""}`}
+        onClick={() => setActiveTab("transactions")}
+      >
+        <Settings size={20} style={{ marginRight: "8px" }} /> Transactions
+      </button>
     </nav>
   );
 }
