@@ -9,6 +9,7 @@ import {
   Trash2,
   ArrowLeft,
   X,
+  ArrowLeftRight,
 } from "lucide-react";
 import "../css/styles.css";
 import "../css/components.css";
@@ -132,6 +133,11 @@ const TrayManagement = () => {
   const [showEdit, setShowEdit] = useState(null);
   const [showDelete, setShowDelete] = useState(null);
 
+  // Transfer modal states
+  const [showTransfer, setShowTransfer] = useState(null); // box object
+  const [transferCounterId, setTransferCounterId] = useState("");
+  const [allCounters, setAllCounters] = useState([]);
+
   /* 🔹 Fetch Trays + counters and enrich with counterName */
   useEffect(() => {
     refreshTrays();
@@ -168,6 +174,46 @@ const TrayManagement = () => {
       console.error("Error fetching trays:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    async function loadCounters() {
+      try {
+        const data = await CounterAPI.getAll();
+        setAllCounters(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to load counters:", err);
+      }
+    }
+    loadCounters();
+  }, []);
+
+  const handleTransferBox = async () => {
+    if (!transferCounterId) {
+      toast.error("Please select a destination counter");
+      return;
+    }
+
+    try {
+      await axios.post("http://localhost:8080/api/box/transfer", null, {
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+        params: {
+          boxId: showTransfer.id,
+          counterId: transferCounterId,
+        },
+      });
+
+      toast.success(`Box #${showTransfer.identity} transferred successfully`);
+
+      setShowTransfer(null);
+      setTransferCounterId("");
+      refreshTrays();
+    } catch (err) {
+      console.error("Transfer failed:", err?.response || err);
+      toast.error(err?.response?.data || "Failed to transfer box");
     }
   };
 
@@ -317,13 +363,13 @@ const TrayManagement = () => {
               </div>
 
               <div className="box-actions flex items-center justify-between mt-3">
-                <div className="box-total font-semibold">
+                {/* <div className="box-total font-semibold">
                   Total:{" "}
                   {typeof tray.totalAll === "number"
                     ? tray.totalAll.toFixed(3)
                     : "0.000"}
                   g
-                </div>
+                </div> */}
                 <div className="action-buttons flex gap-2">
                   <button
                     className="btn-manage flex items-center gap-1"
@@ -361,6 +407,15 @@ const TrayManagement = () => {
                     onClick={() => setShowDelete(tray)}
                   >
                     <Trash2 size={16} /> Delete
+                  </button>
+                  <button
+                    className="btn btn-success btn-small flex items-center gap-1"
+                    onClick={() => {
+                      setShowTransfer(tray);
+                      setTransferCounterId("");
+                    }}
+                  >
+                    <ArrowLeftRight size={16} /> Transfer
                   </button>
                 </div>
               </div>
@@ -428,6 +483,44 @@ const TrayManagement = () => {
           </div>
         </Modal>
       )}
+
+      {/* Transfer Modal */}
+      {showTransfer && (
+        <Modal
+          title={`Transfer Box #${showTransfer.identity}`}
+          onClose={() => setShowTransfer(null)}
+        >
+          <div className="form-group">
+            <label>Destination Counter</label>
+            <select
+              value={transferCounterId}
+              onChange={(e) => setTransferCounterId(e.target.value)}
+              required
+            >
+              <option value="">Select Counter</option>
+              {allCounters
+                .filter((c) => c.id !== showTransfer.counterId)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="form-actions flex gap-2 mt-4">
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowTransfer(null)}
+            >
+              Cancel
+            </button>
+            <button className="btn btn-success" onClick={handleTransferBox}>
+              Transfer
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
@@ -436,7 +529,7 @@ const TrayManagement = () => {
 function CreateTrayForm({ onClose, onSaved }) {
   const [identity, setIdentity] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [fixedWeight, setFixedWeight] = useState(100);
+  const [fixedWeight, setFixedWeight] = useState();
   const [counters, setCounters] = useState([]);
   const [counterId, setCounterId] = useState("");
 

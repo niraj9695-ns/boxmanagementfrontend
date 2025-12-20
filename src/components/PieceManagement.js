@@ -442,18 +442,33 @@ export default function PieceManagement({ container, boxId, onBack }) {
   /* 🔹 Delete Piece */
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`http://localhost:8080/api/pieces/${id}`, {
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login");
+        return;
+      }
+
+      await axios.delete("http://localhost:8080/api/pieces/delete", {
         headers: {
-          Authorization: `Bearer ${getToken()}`,
+          Authorization: `Bearer ${token}`,
+        },
+        params: {
+          id: id, // ✅ request param as backend expects
         },
       });
+
       setDeleteModal(null);
       fetchPieces();
       fetchBoxDetails();
       toast.success("Piece deleted successfully");
     } catch (err) {
-      console.error("Error deleting piece:", err);
-      toast.error("Failed to delete piece");
+      console.error("Error deleting piece:", err?.response || err);
+
+      if (err?.response?.status === 403) {
+        toast.error("You are not authorized to delete this piece");
+      } else {
+        toast.error(err?.response?.data || "Failed to delete piece");
+      }
     }
   };
 

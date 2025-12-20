@@ -118,6 +118,13 @@ export default function GetAllPieces() {
   const [deleteModal, setDeleteModal] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  //sold out
+  const [showDeleteSoldModal, setShowDeleteSoldModal] = useState(false);
+  const [soldStartDate, setSoldStartDate] = useState(null);
+  const [soldEndDate, setSoldEndDate] = useState(null);
+  const [soldPreview, setSoldPreview] = useState([]);
+  const [loadingSoldPreview, setLoadingSoldPreview] = useState(false);
+
   // Lookup options for dropdowns
   const [purityOptions, setPurityOptions] = useState([]);
   const [typeOptions, setTypeOptions] = useState([]);
@@ -461,17 +468,119 @@ export default function GetAllPieces() {
         toast.error("Missing auth token — please login");
         return;
       }
-      await axios.delete(`http://localhost:8080/api/pieces/${id}`, {
+
+      await axios.delete("http://localhost:8080/api/pieces/delete", {
         headers: {
           Authorization: `Bearer ${token}`,
         },
+        params: {
+          id: id, // ✅ sent as request param
+        },
       });
+
       setDeleteModal(null);
       fetchPieces();
       toast.success("Piece deleted successfully");
     } catch (err) {
-      console.error("Error deleting piece:", err, err?.response?.data);
-      toast.error("Failed to delete piece");
+      console.error("Error deleting piece:", err?.response || err);
+
+      if (err?.response?.status === 403) {
+        toast.error("You are not authorized to delete pieces");
+      } else {
+        toast.error(err?.response?.data || "Failed to delete piece");
+      }
+    }
+  };
+
+  //sold out delete bulk
+
+  const previewSoldPieces = () => {
+    if (!soldStartDate || !soldEndDate) {
+      toast.warn("Please select start and end date");
+      return;
+    }
+
+    // ✅ Explicit time handling
+    const start = soldStartDate
+      .hour(0)
+      .minute(0)
+      .second(0)
+      .millisecond(0)
+      .toDate();
+
+    const end = soldEndDate
+      .hour(23)
+      .minute(59)
+      .second(59)
+      .millisecond(999)
+      .toDate();
+
+    console.log("🟢 Preview range:", start, end);
+
+    const filtered = pieces.filter(
+      (p) =>
+        p.sold === true &&
+        p.soldAt &&
+        new Date(p.soldAt) >= start &&
+        new Date(p.soldAt) <= end
+    );
+
+    console.log("🟢 Preview sold pieces:", filtered);
+    setSoldPreview(filtered);
+  };
+
+  const deleteSoldByDate = async () => {
+    if (!soldStartDate || !soldEndDate) {
+      toast.warn("Please select start and end date");
+      return;
+    }
+
+    try {
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login");
+        return;
+      }
+
+      // ✅ Explicit time handling
+      const startDateTime = soldStartDate
+        .hour(0)
+        .minute(0)
+        .second(0)
+        .format("YYYY-MM-DDTHH:mm:ss");
+
+      const endDateTime = soldEndDate
+        .hour(23)
+        .minute(59)
+        .second(59)
+        .format("YYYY-MM-DDTHH:mm:ss");
+
+      console.log("🗑️ DELETE SOLD PIECES");
+      console.log("➡ startDate:", startDateTime);
+      console.log("➡ endDate:", endDateTime);
+
+      const res = await axios.delete(
+        "http://localhost:8080/api/pieces/deleteSoldByDate",
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          params: {
+            startDate: startDateTime,
+            endDate: endDateTime,
+          },
+        }
+      );
+
+      console.log("✅ Backend response:", res.data);
+
+      toast.success(res.data || "Sold pieces deleted permanently");
+      setShowDeleteSoldModal(false);
+      setSoldPreview([]);
+      fetchPieces();
+    } catch (err) {
+      console.error("❌ Error deleting sold pieces:", err);
+      toast.error(err?.response?.data || "Failed to delete sold pieces");
     }
   };
 
@@ -546,6 +655,13 @@ export default function GetAllPieces() {
           onClick={() => setShowCreate(true)}
         >
           <Plus size={16} /> Add Piece
+        </button>
+
+        <button
+          className="btn btn-secondary"
+          onClick={() => setShowDeleteSoldModal(true)}
+        >
+          <Trash2 size={16} /> Delete Sold out
         </button>
       </div>
 
@@ -1057,6 +1173,96 @@ export default function GetAllPieces() {
             >
               Delete
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {showDeleteSoldModal && (
+        <Modal
+          title="Delete Sold Pieces by Date Range"
+          onClose={() => setShowDeleteSoldModal(false)}
+        >
+          <div className="piece-form">
+            <div className="form-row">
+              <div className="form-group">
+                <label>Start Date</label>
+                <LocalizationProvider dateAdapter={AdapterDayjs}>
+                  <DatePicker
+                    value={soldStartDate}
+                    onChange={setSoldStartDate}
+                    slotProps={{
+                      textField: { size: "small", fullWidth: true },
+                    }}
+                  />
+                </LocalizationProvider>
+              </div>
+
+              <div className="form-group">
+                <label>End Date</label>
+                <LocalizationProvider dateAdapter={AdapterDayjs}>
+                  <DatePicker
+                    value={soldEndDate}
+                    onChange={setSoldEndDate}
+                    slotProps={{
+                      textField: { size: "small", fullWidth: true },
+                    }}
+                  />
+                </LocalizationProvider>
+              </div>
+            </div>
+
+            <button
+              className="btn btn-primary"
+              onClick={previewSoldPieces}
+              style={{ marginTop: "0.5rem" }}
+            >
+              Preview Sold Pieces
+            </button>
+
+            {/* Preview List */}
+            {soldPreview.length > 0 && (
+              <div style={{ marginTop: "1rem" }}>
+                <h4>Sold Pieces ({soldPreview.length})</h4>
+                <div className="table-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Barcode</th>
+                        <th>Type</th>
+                        <th>Box</th>
+                        <th>Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {soldPreview.map((p) => (
+                        <tr key={p.id}>
+                          <td>{p.barcode || "-"}</td>
+                          <td>{p.type}</td>
+                          <td>{p.boxId}</td>
+                          <td>
+                            {p.soldAt
+                              ? dayjs(p.soldAt).format("DD-MM-YYYY HH:mm")
+                              : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="form-actions">
+                  <button className="btn btn-danger" onClick={deleteSoldByDate}>
+                    Delete All Sold Pieces
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {soldPreview.length === 0 && soldStartDate && soldEndDate && (
+              <p style={{ marginTop: "1rem", color: "#64748b" }}>
+                No sold pieces found in selected range.
+              </p>
+            )}
           </div>
         </Modal>
       )}

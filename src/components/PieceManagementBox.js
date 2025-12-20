@@ -62,6 +62,22 @@ export default function PieceManagement({ container, boxId, onBack }) {
   const [showSoldOut, setShowSoldOut] = useState(null); // piece object
   const [deleteModal, setDeleteModal] = useState(null);
 
+  // Loose items
+  const [looseItems, setLooseItems] = useState([]);
+  const [showLooseCreate, setShowLooseCreate] = useState(false);
+  const [showLooseEdit, setShowLooseEdit] = useState(null);
+  const [showLooseTransfer, setShowLooseTransfer] = useState(null);
+  const [showLooseSell, setShowLooseSell] = useState(null);
+  const [looseDeleteModal, setLooseDeleteModal] = useState(null);
+
+  const [looseSellWeight, setLooseSellWeight] = useState("");
+
+  const [looseForm, setLooseForm] = useState({
+    name: "",
+    netWeight: "",
+    variableWeight: "",
+  });
+
   // Lookup options for dropdowns
   const [purityOptions, setPurityOptions] = useState([]);
   const [typeOptions, setTypeOptions] = useState([]);
@@ -136,6 +152,156 @@ export default function PieceManagement({ container, boxId, onBack }) {
       setLoading(false);
     }
   }
+
+  async function fetchLooseItems() {
+    if (!activeBoxId) return;
+
+    try {
+      const res = await axios.get(
+        "http://localhost:8080/api/loose/getByBoxId",
+        {
+          headers: { Authorization: `Bearer ${getToken()}` },
+          params: { boxId: activeBoxId },
+        }
+      );
+      setLooseItems(res.data || []);
+    } catch (err) {
+      console.error("Error fetching loose items:", err);
+      toast.error("Failed to load loose items");
+    }
+  }
+
+  useEffect(() => {
+    fetchLooseItems();
+  }, [activeBoxId]);
+
+  const handleLooseChange = (e) => {
+    const { id, value } = e.target;
+    setLooseForm((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const handleLooseSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(
+        "http://localhost:8080/api/loose",
+        {
+          name: looseForm.name,
+          netWeight: parseFloat(looseForm.netWeight),
+          variableWeight: parseFloat(looseForm.variableWeight),
+          boxId: activeBoxId,
+        },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+
+      toast.success("Loose item added successfully");
+      setShowLooseCreate(false);
+      setLooseForm({ name: "", netWeight: "", variableWeight: "" });
+      fetchLooseItems();
+      fetchBoxDetails?.();
+    } catch {
+      toast.error("Failed to add loose item");
+    }
+  };
+
+  const handleLooseEditSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.put(
+        "http://localhost:8080/api/loose",
+        {
+          name: showLooseEdit.name,
+          netWeight: parseFloat(showLooseEdit.netWeight),
+          variableWeight: parseFloat(showLooseEdit.variableWeight),
+        },
+        {
+          headers: { Authorization: `Bearer ${getToken()}` },
+          params: { id: showLooseEdit.id },
+        }
+      );
+      toast.success("Loose item updated successfully");
+      setShowLooseEdit(null);
+      fetchLooseItems();
+      fetchBoxDetails?.();
+    } catch {
+      toast.error("Failed to update loose item");
+    }
+  };
+
+  const handleLooseTransferOpen = async (item) => {
+    setShowLooseTransfer(item);
+    setSelectedCounter("");
+    setSelectedContainer("");
+    setContainers([]);
+
+    const res = await axios.get("http://localhost:8080/api/counter/getAll", {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    setCounters(res.data || []);
+  };
+
+  const handleLooseTransferSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      await axios.post("http://localhost:8080/api/loose/transfer", null, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: {
+          itemId: showLooseTransfer.id,
+          boxId: selectedContainer,
+        },
+      });
+
+      toast.success("Loose item transferred successfully");
+      setShowLooseTransfer(null);
+      fetchLooseItems();
+      fetchBoxDetails?.();
+    } catch {
+      toast.error("Failed to transfer loose item");
+    }
+  };
+
+  const handleLooseSellOpen = (item) => {
+    setShowLooseSell(item);
+    setLooseSellWeight("");
+  };
+
+  const handleLooseSellSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      await axios.post("http://localhost:8080/api/loose/sell", null, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: {
+          id: showLooseSell.id,
+          weight: parseFloat(looseSellWeight),
+        },
+      });
+
+      toast.success("Loose item sold successfully");
+      setShowLooseSell(null);
+      fetchLooseItems();
+      fetchBoxDetails?.();
+    } catch {
+      toast.error("Failed to sell loose item");
+    }
+  };
+
+  const handleLooseDelete = async (id) => {
+    try {
+      await axios.delete(`http://localhost:8080/api/loose/${id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+
+      setLooseDeleteModal(null);
+      fetchLooseItems();
+      fetchBoxDetails?.();
+      toast.success("Loose item deleted successfully");
+    } catch {
+      toast.error("Failed to delete loose item");
+    }
+  };
+  // loose item end
 
   /* 🔹 Fetch purity & type options once */
   useEffect(() => {
@@ -321,18 +487,33 @@ export default function PieceManagement({ container, boxId, onBack }) {
   /* 🔹 Delete Piece (DELETE /api/pieces/{id}) */
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`http://localhost:8080/api/pieces/${id}`, {
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login");
+        return;
+      }
+
+      await axios.delete("http://localhost:8080/api/pieces/delete", {
         headers: {
-          Authorization: `Bearer ${getToken()}`,
+          Authorization: `Bearer ${token}`,
+        },
+        params: {
+          id: id, // ✅ backend expects request param
         },
       });
+
       setDeleteModal(null);
       fetchPieces();
       fetchBoxDetails();
       toast.success("Piece deleted successfully");
     } catch (err) {
-      console.error("Error deleting piece:", err);
-      toast.error("Failed to delete piece");
+      console.error("Error deleting piece:", err?.response || err);
+
+      if (err?.response?.status === 403) {
+        toast.error("You are not authorized to delete this piece");
+      } else {
+        toast.error(err?.response?.data || "Failed to delete piece");
+      }
     }
   };
 
@@ -353,12 +534,14 @@ export default function PieceManagement({ container, boxId, onBack }) {
           <h3 id="pieceTitle">Box #{displayBoxIdentity} - Piece Management</h3>
         </div>
 
+        {/* Add Loose Item Button */}
         <button
-          onClick={onBack}
-          id="backToContainers"
-          className="btn btn-secondary flex items-center gap-1"
+          id="addLooseItemBtn"
+          className="btn btn-warning flex items-center gap-1"
+          onClick={() => setShowLooseCreate(true)}
+          style={{ marginLeft: "0.75rem" }}
         >
-          <statement size={16} /> Transactions
+          <Package2 size={16} /> Add Loose Item
         </button>
 
         <button
@@ -501,6 +684,78 @@ export default function PieceManagement({ container, boxId, onBack }) {
                   </tr>
                 );
               })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Loose Items Table */}
+      <div className="table-container" style={{ marginTop: "2rem" }}>
+        <h3 className="mb-3">Loose Items</h3>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Name</th>
+              <th>Net Weight (g)</th>
+              <th>Variable Weight (g)</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {looseItems.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="text-center py-4">
+                  No loose items found for this box.
+                </td>
+              </tr>
+            ) : (
+              looseItems.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    {item.createdAt
+                      ? new Date(item.createdAt).toLocaleDateString()
+                      : "-"}
+                  </td>
+                  <td className="font-semibold">{item.name}</td>
+                  <td>{item.netWeight}g</td>
+                  <td>{item.variableWeight}g</td>
+                  <td>{item.sold ? "SOLD" : "AVAILABLE"}</td>
+                  <td>
+                    <div className="action-buttons">
+                      <button
+                        className="btn btn-small btn-success"
+                        onClick={() => handleLooseSellOpen(item)}
+                        disabled={item.sold}
+                      >
+                        <ShoppingCart size={14} /> Sell
+                      </button>
+
+                      <button
+                        className="btn btn-small btn-primary"
+                        onClick={() => handleLooseTransferOpen(item)}
+                      >
+                        <Move size={14} /> Transfer
+                      </button>
+
+                      <button
+                        className="btn btn-small btn-warning flex items-center gap-1"
+                        onClick={() => setShowLooseEdit(item)}
+                      >
+                        <Edit2 size={14} /> Edit
+                      </button>
+
+                      <button
+                        className="btn btn-small btn-danger flex items-center gap-1"
+                        onClick={() => setLooseDeleteModal(item)}
+                      >
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
@@ -847,6 +1102,281 @@ export default function PieceManagement({ container, boxId, onBack }) {
           </div>
         </Modal>
       )}
+
+      {/* Add Loose Item Modal */}
+      {showLooseCreate && (
+        <Modal
+          title="Add New Loose Item"
+          onClose={() => setShowLooseCreate(false)}
+        >
+          <form onSubmit={handleLooseSubmit} className="piece-form">
+            <div className="form-group">
+              <label>Item Name</label>
+              <input
+                type="text"
+                id="name"
+                placeholder="Enter item name"
+                value={looseForm.name}
+                onChange={handleLooseChange}
+                required
+              />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Net Weight (grams)</label>
+                <input
+                  type="number"
+                  id="netWeight"
+                  placeholder="Net weight"
+                  step="0.01"
+                  value={looseForm.netWeight}
+                  onChange={handleLooseChange}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Variable Weight (grams)</label>
+                <input
+                  type="number"
+                  id="variableWeight"
+                  placeholder="Variable weight"
+                  step="0.01"
+                  value={looseForm.variableWeight}
+                  onChange={handleLooseChange}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => setShowLooseCreate(false)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-warning">
+                Add Loose Item
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Edit Loose Item Modal */}
+      {showLooseEdit && (
+        <Modal title="Edit Loose Item" onClose={() => setShowLooseEdit(null)}>
+          <form onSubmit={handleLooseEditSubmit} className="piece-form">
+            <div className="form-group">
+              <label>Item Name</label>
+              <input
+                type="text"
+                value={showLooseEdit.name || ""}
+                onChange={(e) =>
+                  setShowLooseEdit({ ...showLooseEdit, name: e.target.value })
+                }
+                required
+              />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Net Weight (g)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={showLooseEdit.netWeight}
+                  onChange={(e) =>
+                    setShowLooseEdit({
+                      ...showLooseEdit,
+                      netWeight: e.target.value,
+                    })
+                  }
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Variable Weight (g)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={showLooseEdit.variableWeight}
+                  onChange={(e) =>
+                    setShowLooseEdit({
+                      ...showLooseEdit,
+                      variableWeight: e.target.value,
+                    })
+                  }
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => setShowLooseEdit(null)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-warning">
+                Update Loose Item
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Transfer Loose Item Modal */}
+      {/* Transfer Loose Item Modal */}
+      {showLooseTransfer && (
+        <Modal
+          title="Transfer Loose Item"
+          onClose={() => setShowLooseTransfer(null)}
+        >
+          <form onSubmit={handleLooseTransferSubmit} className="piece-form">
+            {/* Current Location */}
+            <div className="form-group">
+              <label>Current Location</label>
+              <div
+                style={{
+                  padding: "0.75rem",
+                  background: "#f8fafc",
+                  borderRadius: "6px",
+                  color: "#64748b",
+                }}
+              >
+                {`Counter ${displayCounter} → Box #${displayBoxIdentity}`}
+              </div>
+            </div>
+
+            <div className="transfer-options form-row">
+              {/* Counter Dropdown */}
+              <div className="form-group">
+                <label>Target Counter</label>
+                <select
+                  value={selectedCounter}
+                  onChange={(e) => handleCounterChange(e.target.value)}
+                  required
+                >
+                  <option value="">Select Counter</option>
+                  {counters.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Container Dropdown */}
+              <div className="form-group">
+                <label>Target Container</label>
+                <select
+                  value={selectedContainer}
+                  onChange={(e) => setSelectedContainer(e.target.value)}
+                  required
+                  disabled={!containers.length}
+                >
+                  <option value="">Select Container</option>
+                  {containers.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      Box #{b.identity}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => setShowLooseTransfer(null)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                Transfer Loose Item
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Sell Loose Item Modal */}
+      {showLooseSell && (
+        <Modal title="Sell Loose Item" onClose={() => setShowLooseSell(null)}>
+          <form onSubmit={handleLooseSellSubmit} className="piece-form">
+            <div className="form-group">
+              <p>
+                Selling from loose item <strong>{showLooseSell.name}</strong>
+              </p>
+              <p>
+                Current net weight: <strong>{showLooseSell.netWeight}g</strong>
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label>Sell Weight (g)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={looseSellWeight}
+                onChange={(e) => setLooseSellWeight(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => setShowLooseSell(null)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-success">
+                Sell
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Delete Loose Item Confirmation Modal */}
+      {looseDeleteModal && (
+        <Modal
+          title="Delete Loose Item"
+          onClose={() => setLooseDeleteModal(null)}
+        >
+          <div className="form-group">
+            <p>
+              Are you sure you want to delete loose item{" "}
+              <strong>{looseDeleteModal.name || looseDeleteModal.id}</strong>?
+            </p>
+          </div>
+
+          <div className="form-actions flex justify-end gap-3 mt-6">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setLooseDeleteModal(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={() => handleLooseDelete(looseDeleteModal.id)}
+            >
+              Delete
+            </button>
+          </div>
+        </Modal>
+      )}
+
       <ToastContainer position="top-right" autoClose={3000} theme="colored" />
     </div>
   );

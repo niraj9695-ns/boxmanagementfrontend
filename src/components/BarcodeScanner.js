@@ -555,18 +555,35 @@ export default function BarcodeScannerIntegrated() {
   async function undoAddPiece(piece) {
     const token = getToken();
     if (!token) {
-      pushToast("Cannot undo add: missing auth token", "error");
+      pushToast("Missing auth token — please login", "error");
       return;
     }
+
     try {
-      await axios.delete(`http://localhost:8080/api/pieces/${piece.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      await axios.delete("http://localhost:8080/api/pieces/delete", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        params: {
+          id: piece.id, // ✅ sent as request param
+        },
       });
+
+      // update UI
       setPieces((prev) => prev.filter((p) => p.id !== piece.id));
+
       pushToast("Add operation undone", "success");
     } catch (err) {
-      console.error("Failed to undo add:", err);
-      pushToast("Failed to undo add operation", "error");
+      console.error("Failed to undo add:", err?.response || err);
+
+      if (err?.response?.status === 403) {
+        pushToast("You are not authorized to delete this piece", "error");
+      } else {
+        pushToast(
+          err?.response?.data || "Failed to undo add operation",
+          "error"
+        );
+      }
     }
   }
 
@@ -767,6 +784,7 @@ export default function BarcodeScannerIntegrated() {
     const piece = pieces.find(
       (p) => (p.barcode || "").toLowerCase() === barcode.toLowerCase()
     );
+
     if (!piece) {
       updateHistoryStatus(historyItem.id, "error", "Piece not found");
       pushToast(`Piece ${barcode} not found`, "error");
@@ -785,23 +803,39 @@ export default function BarcodeScannerIntegrated() {
     const pieceCopy = { ...piece };
 
     try {
-      await axios.delete(`http://localhost:8080/api/pieces/${piece.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      // ✅ CORRECT DELETE API CALL (REQUEST PARAM)
+      await axios.delete("http://localhost:8080/api/pieces/delete", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        params: {
+          id: piece.id,
+        },
       });
 
+      // ✅ update UI
       setPieces((prev) => prev.filter((p) => p.id !== piece.id));
+
       updateHistoryStatus(historyItem.id, "success", "Deleted successfully");
 
       pushToast(`Deleted piece ${barcode}`, "success", () =>
         undoDelete(pieceCopy)
       );
+
       playSuccessSound();
     } catch (err) {
-      console.error("Error deleting piece:", err);
+      console.error("Error deleting piece:", err?.response || err);
+
       updateHistoryStatus(historyItem.id, "error", "Delete failed");
-      const msg =
-        err?.response?.data?.message || err?.response?.data || err.message;
-      pushToast(`Failed to delete piece: ${msg}`, "error");
+
+      if (err?.response?.status === 403) {
+        pushToast("You are not authorized to delete this piece", "error");
+      } else {
+        const msg =
+          err?.response?.data?.message || err?.response?.data || err.message;
+        pushToast(`Failed to delete piece: ${msg}`, "error");
+      }
+
       playErrorSound();
     }
   }
@@ -1146,7 +1180,7 @@ export default function BarcodeScannerIntegrated() {
                   <th>Net Weight (g)</th>
                   <th>Variable Weight (g)</th>
                   <th>Status</th>
-                  <th>Actions</th>
+                  {/* <th>Actions</th> */}
                 </tr>
               </thead>
 
@@ -1190,8 +1224,8 @@ export default function BarcodeScannerIntegrated() {
                           {piece.sold ? "SOLD" : "AVAILABLE"}
                         </span>
                       </td>
-                      <td>
-                        {/* Buttons kept for layout; no functionality attached */}
+                      {/* <td>
+                       
                         <div className="action-buttons">
                           <button className="btn btn-small btn-success">
                             Sell
@@ -1206,7 +1240,7 @@ export default function BarcodeScannerIntegrated() {
                             Delete
                           </button>
                         </div>
-                      </td>
+                      </td> */}
                     </tr>
                   ))
                 )}
@@ -1215,68 +1249,7 @@ export default function BarcodeScannerIntegrated() {
           </div>
         </div>
         {/* piece table end */}
-        {/* Scan History */}
-        <div className="scan-history">
-          <div className="history-header">
-            <h3>Recent Scans</h3>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                id="clearHistoryBtn"
-                className="btn btn-secondary btn-small"
-                onClick={clearHistory}
-              >
-                <Trash2 size={14} aria-hidden="true" /> Clear History
-              </button>
-              <button
-                className="btn btn-secondary btn-small"
-                onClick={undoLast}
-                disabled={scanHistory.length === 0}
-              >
-                Undo Last
-              </button>
-            </div>
-          </div>
 
-          <div className="history-list" id="scanHistoryList">
-            {scanHistory.length === 0 ? (
-              <div className="empty-history">
-                <Scan size={18} aria-hidden="true" />
-                <p>No scans yet. Start scanning to see history here.</p>
-              </div>
-            ) : (
-              scanHistory.map((item) => (
-                <div key={item.id} className="history-item">
-                  <div className="history-item-top">
-                    <strong>{item.barcode}</strong>
-                    <span className="history-op">{item.operation}</span>
-                  </div>
-                  <div className="history-item-meta">
-                    <span
-                      className={`history-status-badge status-${item.status}`}
-                    >
-                      {item.status}
-                    </span>
-                    {item.message && (
-                      <span className="history-message"> — {item.message}</span>
-                    )}
-                    <span className="history-time">
-                      {new Date(item.timestamp).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="history-actions">
-                    <button
-                      className="info-btn"
-                      onClick={() => showPieceInfo(item.barcode)}
-                      title="Show piece info"
-                    >
-                      <Info size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
         {/* ARIA Live Region */}
         <div
           id="scannerAnnouncements"
@@ -1309,10 +1282,12 @@ export default function BarcodeScannerIntegrated() {
 /* ---------------------------
    Quick Add Form
    --------------------------- */
-
 function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
   const [counters, setCounters] = useState([]);
   const [boxes, setBoxes] = useState([]);
+
+  // ✅ local barcode state (important)
+  const [localBarcode, setLocalBarcode] = useState(barcode);
 
   const [counterId, setCounterId] = useState(lastSelection.counterId || "");
   const [boxId, setBoxId] = useState(lastSelection.boxId || "");
@@ -1324,7 +1299,12 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
   const [types, setTypes] = useState([]);
   const [purities, setPurities] = useState([]);
 
-  // load dropdown data on mount
+  /* 🔹 Update local barcode when new scan comes */
+  useEffect(() => {
+    setLocalBarcode(barcode);
+  }, [barcode]);
+
+  /* 🔹 Load dropdown data */
   useEffect(() => {
     const token = getToken();
     if (!token) return;
@@ -1342,16 +1322,14 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
+
         setCounters(cRes.data || []);
         setTypes(tRes.data || []);
         setPurities(pRes.data || []);
 
-        // if we already have a counter selection from last time,
-        // load its boxes
-        const cid = lastSelection.counterId || "";
-        if (cid) {
-          setCounterId(cid);
-          fetchBoxes(cid, token, lastSelection.boxId || "");
+        if (lastSelection.counterId) {
+          setCounterId(lastSelection.counterId);
+          fetchBoxes(lastSelection.counterId, token, lastSelection.boxId);
         }
       } catch (err) {
         console.error("Error loading quick-add data:", err);
@@ -1368,6 +1346,7 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
       setBoxId("");
       return;
     }
+
     try {
       const res = await axios.get(
         "http://localhost:8080/api/box/getByCounterId",
@@ -1376,8 +1355,10 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
           params: { counterId: counterIdValue },
         }
       );
+
       const arr = res.data || [];
       setBoxes(arr);
+
       if (
         preselectBoxId &&
         arr.some((b) => String(b.id) === String(preselectBoxId))
@@ -1387,7 +1368,7 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
         setBoxId(String(arr[0].id));
       }
     } catch (err) {
-      console.error("Error fetching boxes for quick add:", err);
+      console.error("Error fetching boxes:", err);
     }
   }
 
@@ -1395,19 +1376,21 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
     const value = e.target.value;
     setCounterId(value);
     setBoxId("");
+
     const token = getToken();
     if (!token) return;
+
     await fetchBoxes(value, token);
   };
 
+  /* 🔹 Submit handler */
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!counterId || !boxId || !type || !netWeight || !variableWeight) {
-      return;
-    }
 
-    const ok = await onSubmit({
-      barcode,
+    if (!counterId || !boxId || !type || !netWeight || !variableWeight) return;
+
+    const success = await onSubmit({
+      barcode: localBarcode,
       counterId,
       boxId,
       type,
@@ -1416,8 +1399,9 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
       variableWeight,
     });
 
-    if (ok) {
-      // keep modal open, remember last selections, just clear weights
+    if (success) {
+      // ✅ reset ONLY these fields
+      setLocalBarcode("");
       setNetWeight("");
       setVariableWeight("");
     }
@@ -1429,7 +1413,7 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
         <label>Barcode</label>
         <input
           type="text"
-          value={barcode}
+          value={localBarcode}
           readOnly
           className="readonly-input"
         />
@@ -1507,6 +1491,7 @@ function QuickAddForm({ barcode, lastSelection, onCancel, onSubmit }) {
             required
           />
         </div>
+
         <div className="form-group">
           <label>Variable Weight (g)</label>
           <input
