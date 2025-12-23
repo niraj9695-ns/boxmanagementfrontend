@@ -75,7 +75,7 @@ class TrayClass {
   static async getById(id) {
     // GET /api/box/getById?Id=...
     const res = await axios.get("http://localhost:8080/api/box/getById", {
-      params: { Id: id },
+      params: { id },
       headers: { Authorization: `Bearer ${getToken()}` },
     });
     return res.data;
@@ -84,7 +84,7 @@ class TrayClass {
   static async update(id, data) {
     // PUT /api/box/update?Id=...
     const res = await axios.put("http://localhost:8080/api/box/update", data, {
-      params: { Id: id },
+      params: { id },
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getToken()}`,
@@ -114,7 +114,7 @@ const CounterAPI = {
 
   async getById(id) {
     const res = await axios.get("http://localhost:8080/api/counter/getById", {
-      params: { Id: id },
+      params: { id },
       headers: { Authorization: `Bearer ${getToken()}` },
     });
     return res.data;
@@ -402,12 +402,12 @@ const TrayManagement = () => {
                     <Edit2 size={16} /> Edit
                   </button>
 
-                  <button
+                  {/* <button
                     className="btn btn-danger btn-small flex items-center gap-1"
                     onClick={() => setShowDelete(tray)}
                   >
                     <Trash2 size={16} /> Delete
-                  </button>
+                  </button> */}
                   <button
                     className="btn btn-success btn-small flex items-center gap-1"
                     onClick={() => {

@@ -289,18 +289,36 @@ export default function PieceManagement({ container, boxId, onBack }) {
 
   const handleLooseDelete = async (id) => {
     try {
-      await axios.delete(`http://localhost:8080/api/loose/${id}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+      const token = getToken();
+      if (!token) {
+        toast.error("Missing auth token — please login again");
+        return;
+      }
+
+      await axios.delete("http://localhost:8080/api/loose/delete", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        params: {
+          id: id, // ✅ backend expects @RequestParam Long id
+        },
       });
 
       setLooseDeleteModal(null);
       fetchLooseItems();
       fetchBoxDetails?.();
       toast.success("Loose item deleted successfully");
-    } catch {
-      toast.error("Failed to delete loose item");
+    } catch (err) {
+      console.error("Error deleting loose item:", err?.response || err);
+
+      if (err?.response?.status === 403) {
+        toast.error("You are not authorized to delete loose items");
+      } else {
+        toast.error(err?.response?.data || "Failed to delete loose item");
+      }
     }
   };
+
   // loose item end
 
   /* 🔹 Fetch purity & type options once */

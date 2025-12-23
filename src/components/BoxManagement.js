@@ -82,7 +82,7 @@ class BoxClass {
 
   static async update(id, data) {
     const res = await axios.put("http://localhost:8080/api/box/update", data, {
-      params: { Id: id },
+      params: { id },
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getToken()}`,
@@ -413,12 +413,12 @@ const BoxesTab = () => {
                     <Edit2 size={16} /> Edit
                   </button>
 
-                  <button
+                  {/* <button
                     className="btn btn-danger btn-small flex items-center gap-1"
                     onClick={() => setShowDelete(box)}
                   >
                     <Trash2 size={16} /> Delete
-                  </button>
+                  </button> */}
                   <button
                     className="btn btn-success btn-small flex items-center gap-1"
                     onClick={() => {

@@ -962,6 +962,61 @@ body {
   letter-spacing: 0.025em;
 }
 
+.action-added {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.action-transfer {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.action-sold {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.action-deleted {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.action-deleted_sold {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.action-updated {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+.action-added_loose {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.action-updated_loose {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+.action-partial_sell {
+  background: #fef7cd;
+  color: #ca8a04;
+}
+
+.action-transfer_in {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.action-transfer_out {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
 .action-add {
   background: #dcfce7;
   color: #16a34a;

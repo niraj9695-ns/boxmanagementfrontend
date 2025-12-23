@@ -475,7 +475,8 @@ export default function PieceManagement({ container, boxId, onBack }) {
   /* 🔹 Delete Loose Item */
   const handleLooseDelete = async (id) => {
     try {
-      await axios.delete(`http://localhost:8080/api/loose/${id}`, {
+      await axios.delete(`http://localhost:8080/api/loose/delete`, {
+        params: { id },
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       setLooseDeleteModal(null);
